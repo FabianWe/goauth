@@ -39,12 +39,17 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// PasswordHandler is an interface that knows two methods:
-// - Create a has from a given (plaintext) password
-// - Compare a previously by this method generated hash and compare it to
-//   another password.
-// There is an implementation BcryptHandler, so you don't have to write one
-// on your own, but you could!
+/*
+PasswordHandler is an interface that knows two methods:
+
+Create a hash from a given (plaintext) password
+
+Compare a previously by this method generated hash and compare it to
+another password.
+
+There is an implementation BcryptHandler, so you don't have to write one
+on your own, but you could!
+*/
 type PasswordHandler interface {
 	// GenerateHash generates a hash from the given password.
 	GenerateHash(password []byte) ([]byte, error)
