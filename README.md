@@ -75,7 +75,6 @@ CREATE TABLE IF NOT EXISTS user_sessions (
 	last_seen DATETIME NOT NULL,
 	UNIQUE(session_key)
 );`
-}
 ```
 Where `%s` and `%d` are replaced by your id type / key length. You can also call the function `InitSessionKeysTable` (for example at each start of your application). The table will be created only if it does not exist.
 
@@ -103,7 +102,6 @@ CREATE TABLE IF NOT EXISTS users (
 	PRIMARY KEY(id),
 	UNIQUE(username)
 	);
-}
 ```
 Where `%d` gets replaced by your password length. The default is 60, which is the length of the hash returned by bcrypt. If you don't want this style simply create your own. If you want to keep the rest of the functionality only make sure id, username and password look nearly as here.
 
