@@ -1,0 +1,14 @@
+version: "2"
+
+services:
+  mariadb:
+    image: mariadb
+    volumes:
+      - ./mariadb:/var/lib/mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=PASSWORD
+
+  demo:
+    image: fabianwe/goauth
+    links:
+      - mariadb:mysql
