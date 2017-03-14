@@ -6,10 +6,12 @@ The documentation of this package can be found on [GoDoc](https://godoc.org/gith
 License: [MIT License](https://opensource.org/licenses/MIT)
 
 # What is this package for
-This package may help you if
+This package may help you if:
 
  - You wish to manage user sessions: A user logs in and stays logged in until his login session expires. This package creates a database (at the moment only MySQL is supported) and stores session keys in it. It helps you with the generation and validation of such keys. You can store them in a secure cookie for example.
  - Manage user accounts in a database: There are different ways to accomplish this, either by using a default scheme that is defined in this package our with your own scheme. This package takes care that user passwords are stored in a secure way using [bcrypt](https://godoc.org/github.com/FabianWe/goauth "bcrypt").
+
+I wanted to develop some small Go web applications without a big framework or something like that but with user authentication and couldn't find a suitable and small library. So I've written this one by myself.
 
 # Quickstart
 ## Installation
@@ -62,22 +64,78 @@ type UserIDType interface{}
 ```
 So that you can pass every kind of key to it. A last note: when retrieving the key a pointer to an `interface{}` is passed to the sql [Scan](https://golang.org/pkg/database/sql/#Row.Scan) method. Your database driver in this case assignes a type to it. That's why I added the argument `forceUint64` to the method: Usually SQL ids are bit unsigned integers but the mysql driver converts it to an `int64`.  With this method I ensure that the underlying value is certainly of type `uint64`.
 
-## # Session Tokens: Final Words
+### Session Tokens: Final Words
 The [GenSession](https://godoc.org/github.com/FabianWe/goauth#MYSQLConnector.GenSession) function adds an entry to the sessions table even if there is already a session key for that user. For example if a user logs in on multiple devices he/she can have a valid key on each one. If you don't want this behaviour you should write your own method to control this stuff. The database scheme for sessions is rather straight forward:
 
 ```mysql
 CREATE TABLE IF NOT EXISTS user_sessions (
-		user_id %s,
-		session_key CHAR(%d),
-		login_time DATETIME NOT NULL,
-		last_seen DATETIME NOT NULL,
-		UNIQUE(session_key)
-	);`
+	user_id %s,
+	session_key CHAR(%d),
+	login_time DATETIME NOT NULL,
+	last_seen DATETIME NOT NULL,
+	UNIQUE(session_key)
+);`
 }
 ```
-Where %s and %d are replaced by your id type / key length. You can also call the function `InitSessionKeysTable` (for example at each start of your application). The table will be created only if it does not exist.
+Where `%s` and `%d` are replaced by your id type / key length. You can also call the function `InitSessionKeysTable` (for example at each start of your application). The table will be created only if it does not exist.
 
 You should also take care to remove entries from the table that are no longer valid. Do this regularly. There are some methods to help you with this: [CleanSessions](https://godoc.org/github.com/FabianWe/goauth#MYSQLConnector.CleanSessions), [CleanSessionsDaemon](https://godoc.org/github.com/FabianWe/goauth#MYSQLConnector.CleanSessionsDaemon) and a command [clean_sessions](https://godoc.org/github.com/FabianWe/goauth/cmd/clean_sessions) that you can use for example in a cronjob.
+
+### Managing User Authentication
+Of course you should **never** store any password in plaintext our with an insecure hash such as MD5. You want something more secure that is harder to crack. By default all passwords get encrypted with bcrypt.
+To get started: You can initialize a default user table with the [InitDefaultUserScheme](https://godoc.org/github.com/FabianWe/goauth#MYSQLConnector.InitDefaultUserScheme) function:
+```go
+type SessionKeyGenerator interface {
+err := c.InitDefaultUserScheme(db, -1)
+}
+```
+This sets some default parameters and creates a table of the following form:
+```mysql
+CREATE TABLE IF NOT EXISTS users (
+	id SERIAL,
+	username VARCHAR(150) NOT NULL,
+	first_name VARCHAR(30) NOT NULL,
+	last_name VARCHAR(30) NOT NULL,
+	email VARCHAR(254),
+	password CHAR(%d),
+	is_active BOOL,
+	last_login DATETIME,
+	PRIMARY KEY(id),
+	UNIQUE(username)
+	);
+}
+```
+Where `%d` gets replaced by your password length. The default is 60, which is the length of the hash returned by bcrypt. If you don't want this style simply create your own. If you want to keep the rest of the functionality only make sure id, username and password look nearly as here.
+
+If you use this basic scheme you can add a new user with the [InsertDefaultUserScheme](https://godoc.org/github.com/FabianWe/goauth#MYSQLConnector.InsertDefaultUserScheme) function:
+```go
+sqlRes, err := InsertDefaultUserScheme(db *sql.DB, username,
+    firstName, lastName, email, []byte("some password"))  
+```
+You should be able to get the id from the [sql.Result](https://golang.org/pkg/database/sql/#Result) .
+
+There are two ways to authenticate a user: Using some table that looks like the default scheme and one for everybody else.
+
+If you use the default scheme you can use something like:
+```go
+userId, passwordCheck, err := c.CheckDefaultUserPassword(db, username, []byte("check password"))
+```
+See the [function documentation](https://godoc.org/github.com/FabianWe/goauth#MYSQLConnector.CheckDefaultUserPassword).
+This also works for any other scheme as long as it has an id field of type `BIG INT UNSIGNED` (also other int type should work), a username field of a string type and a field password of a string type. username must be unique in that table in this case!
+Note that this function only checks the password: It ignores the `is_active` (if you have something like this in your table).
+
+If you use another database scheme you can pass a query to `NewMYSQLConnector` (the third argument). This query looks like this by default:
+```mysql
+SELECT password FROM users WHERE id = ?
+```
+If you set the query to `""` this query will be used. Otherwise simply replace it by a query that has one ? in it to be replaced by your user id and selects only the password of that user.
+
+With this done you can  use [CheckUserPassword](https://godoc.org/github.com/FabianWe/goauth#MYSQLConnector.CheckUserPassword) like this:
+```go
+passwordCheck, err := c.CheckUserPassword(db *sql.DB, userId, []byte("some password))
+```
+This will then execute the query you defined in `NewMYSQLConnector` and check if the password is valid.
+In any case you should read the [documentation](https://godoc.org/github.com/FabianWe/goauth#MYSQLConnector.CheckUserPassword) first. 
 
 ## Implementing your own SessionKeyGenerator
 The [SessionKeyGenerator](https://godoc.org/github.com/FabianWe/goauth#SessionKeyGenerator) interface is pretty simple:
@@ -89,3 +147,35 @@ type SessionKeyGenerator interface {
 The method `GenerateSessionKey` must return a fixed-size random string. Usually this is the base64 encoding of a random byte array. The package provides you with methods that help you to do this: [RandomBytes](https://godoc.org/github.com/FabianWe/goauth#RandomBytes) and [RandomBase64](https://godoc.org/github.com/FabianWe/goauth#RandomBase64). Of course you can do whatever you like, just make it absolutely random.
 
 Also make sure to adjust the `keyLength` parameter in [InitSessionKeysTable](https://godoc.org/github.com/FabianWe/goauth#MYSQLConnector.InitSessionKeysTable).
+
+## Implementing your own PasswordHandler
+The [PasswordHandler](https://godoc.org/github.com/FabianWe/goauth#PasswordHandler) interface looks like this:
+```go
+type PasswordHandler interface {
+	GenerateHash(password []byte) ([]byte, error)
+	CheckPassword(hashedPW, password []byte) (bool, error)
+}
+```
+You should take care that you use a secure function for that! bcrypt should be good. Also make sure that the hash this method returns is always of the same length. Of course you must adopt your password length in the user database accordingly.
+
+## General Workflow and Some Last Words
+Your workflow usually is something like this:
+
+ 1. When you get a session key, for example via cookie, hit the sessions database, if the key is valid the user is logged in.
+ 2. Otherwise redirect user to login page.
+ 3. If a user logs in generate a new session key and stuff it in a secure cookie.
+ 
+ But this workflow may vary. If you use the default theme you can use the function [LoginDefaultUser](https://godoc.org/github.com/FabianWe/goauth#MYSQLConnector.LoginDefaultUser).
+
+When a user is delete / the active flag set to false you should also remove all keys of that user, you can use  [RemoveSessionForUser](https://godoc.org/github.com/FabianWe/goauth#MYSQLConnector.RemoveSessionForUser) for that.
+
+There is also a function [UpdateSessionKey](https://godoc.org/github.com/FabianWe/goauth#MYSQLConnector.UpdateSessionKey) if someone ever needs it.
+
+Anyway, we're talking about very important stuff here! So be sure to read the [documentation](https://godoc.org/github.com/FabianWe/goauth) properly before you trust on something!
+
+I hope this library helps you and I like some feedback!
+
+## Some Copyright notices
+This library uses the go-sql-driver/mysql driver (unchanged) licensed under the [Mozilla Public License Version 2.0](https://www.mozilla.org/en-US/MPL/2.0/), the source code can be found [here](https://github.com/go-sql-driver/mysql).
+
+It also uses bcrypt for golang, the source and license information ca be found [here](https://github.com/golang/crypto).
