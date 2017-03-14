@@ -20,7 +20,9 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package manin
+// A command that can be executed to remove all invalid session keys from the
+// database (cleanup).
+package main
 
 import (
 	"database/sql"
@@ -56,7 +58,7 @@ func main() {
 		os.Exit(1)
 	}
 	c := goauth.NewMYSQLConnector(nil, nil, "")
-	res, deleteErr := c.ClearSessions(db, duration)
+	res, deleteErr := c.CleanSessions(db, duration)
 
 	if deleteErr != nil {
 		fmt.Println("Can't remove entries from database:", deleteErr)
@@ -74,9 +76,9 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println("Usage of clear_sessions")
+	fmt.Println("Usage of clean_sessions")
 	fmt.Printf("%s <database> <duration>\n", os.Args[0])
 	fmt.Println("The database string must be of the form USERNAME:PASSWORD@tcp(HOST:PORT)/DATABASENAME")
-	fmt.Println("Duration must be a string representing the duration how long a session key is considered value.")
+	fmt.Println("Duration must be a string representing the duration how long a session key is considered valid.")
 	fmt.Println("The format for such a duration is the one from go ParseDuration, e.g. \"100h45m\" for 100 hours and 45 minutes")
 }

@@ -20,6 +20,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// Package goauth provides convinient functions to authenticate users,
+// encrypt their passwords and create and check login sessions (via tokens).
+//
+// See the github page for more details: https://github.com/FabianWe/goauth
 package goauth
 
 import (
@@ -35,34 +39,35 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// An interface that knows to methods:
+// PasswordHandler is an interface that knows two methods:
 // - Create a has from a given (plaintext) password
 // - Compare a previously by this method generated hash and compare it to
 //   another password.
 // There is an implementation BcryptHandler, so you don't have to write one
 // on your own, but you could!
 type PasswordHandler interface {
-	// Generate a password hash from the given password.
+	// GenerateHash generates a hash from the given password.
 	GenerateHash(password []byte) ([]byte, error)
 
-	// Check if the passwords are equal, can return an error (something is
-	// wrong with the data). This should still be handled as failure but you
-	// may wish to preceed differently
+	// CheckPassword tests if the passwords are equal, can return an error
+	// (something is wrong with the data, random engine...). This should still
+	// be handled as failure but you may wish to preceed differently.
 	CheckPassword(hashedPW, password []byte) (bool, error)
 }
 
-// The default cost parameter for bcrypt.
+// DefaultCost is the default cost parameter for bcrypt.
 const DefaultCost = 10
 
-// The default length of encrypted passwords. This is 60 for bcrypt.
+// DefaultPWLength is he default length of encrypted passwords.
+// This is 60 for bcrypt.
 const DefaultPWLength = 60
 
-// A PasswordHandler that uses bcrypt.
+// BcryptHandler is a PasswordHandler that uses bcrypt.
 type BcryptHandler struct {
 	cost int
 }
 
-// Create a new PasswordHandler that uses bcrypt.
+// NewBcryptHandler creates a new PasswordHandler that uses bcrypt.
 // cost is the cost parameter for the algorithm, use -1 for the default value
 // (which should be fine in most cases). The default value is 10.
 // Note that bcrypt has some further restrictions on the cost parameter:
@@ -74,10 +79,13 @@ func NewBcryptHandler(cost int) *BcryptHandler {
 	return &BcryptHandler{cost: cost}
 }
 
+// GenerateHash generates the password hash using bcrypt.
 func (handler *BcryptHandler) GenerateHash(password []byte) ([]byte, error) {
 	return bcrypt.GenerateFromPassword(password, handler.cost)
 }
 
+// CheckPassword checks if the plaintext password was used to create the
+// hashedPW.
 func (handler *BcryptHandler) CheckPassword(hashedPW, password []byte) (bool, error) {
 	// get error from bcrypt
 	err := bcrypt.CompareHashAndPassword(hashedPW, password)
@@ -94,7 +102,7 @@ func (handler *BcryptHandler) CheckPassword(hashedPW, password []byte) (bool, er
 	return false, err
 }
 
-// Generate a random byte slice of size n.
+// RandomBytes generates a random byte slice of size n.
 func RandomBytes(n int) ([]byte, error) {
 	res := make([]byte, n)
 	if _, err := rand.Read(res); err != nil {
@@ -103,8 +111,8 @@ func RandomBytes(n int) ([]byte, error) {
 	return res, nil
 }
 
-// Create a random string that is the base64 encoding of a byte slice of
-// size n. This encoding is URL safe. Note that n specifies the size of
+// RandomBase64 creates a random string that is the base64 encoding of a byte
+// slice of size n. This encoding is URL safe. Note that n specifies the size of
 // the byte slice, the base64 encoding has a different length!
 func RandomBase64(n int) (string, error) {
 	b, err := RandomBytes(n)
@@ -114,7 +122,7 @@ func RandomBase64(n int) (string, error) {
 	return base64.URLEncoding.EncodeToString(b), nil
 }
 
-// An interface for types that can generate a session key.
+// SessionKeyGenerator is an interface for types that can generate a session key.
 // A session key is a string (usually base64). It should have reasonable length.
 // The length of the session keys should be fixed!
 // You can use the RandomBase64 function to create a random string.
@@ -124,32 +132,39 @@ type SessionKeyGenerator interface {
 	GenerateSessionKey() (string, error)
 }
 
+// DefaultSessionKeyGenerator is an implementation of SessionKeyGenerator that
+// produces random base64 strings of size 128.
 type DefaultSessionKeyGenerator struct{}
 
+// NewDefaultSessionKeyGenerator creates a new generator.
 func NewDefaultSessionKeyGenerator() DefaultSessionKeyGenerator {
 	return DefaultSessionKeyGenerator{}
 }
 
+// GenerateSessionKey generates a base64 random string of length 128.
 func (gen DefaultSessionKeyGenerator) GenerateSessionKey() (string, error) {
 	return RandomBase64(96)
 }
 
 //////// SQL ////////
 
+// UserIDType A type for identifiying a user uniquely in the database.
 // In each database schema there should be a value that uniquely identifies the
 // user. This could be some sort of int, a uuuid string or something completely
 // different. We allow everything, but you must make sure that you always
-// use the same type as user identifiaction and that it can be compared in SQL
+// use the same type for user identifiaction and that it can be compared in SQL
 // with the = operator.
 type UserIDType interface{}
 
+// MYSQLConnector that can be used to feed information in a MYSQL database.
+// It supports password storage and session key generation and administration.
 type MYSQLConnector struct {
-	sessionGen        SessionKeyGenerator
-	pwHandler         PasswordHandler
-	passwordUserQuery string
+	SessionGen        SessionKeyGenerator
+	PwHandler         PasswordHandler
+	PasswordUserQuery string
 }
 
-// Instantiate a new connector that uses MYSQL.
+// NewMYSQLConnector instantiates a new connector that uses MYSQL.
 // sessionGen is the generator used to generate new session keys, set it to nil
 // if you want to use the default one (which should be pretty good).
 //
@@ -164,7 +179,7 @@ type MYSQLConnector struct {
 // So if you which to use a different query make sure:
 // - The query uses exactly one ? that gets replaced by the user id
 // - It selects only the password
-// Note that this statement will be used with QueryRow, so the username must
+// Note that this statement will be used with QueryRow, so the id must
 // be unique. If you have some other scheme the user managing stuff of mysql
 // is probably not what you want, you can use the sessions stuff though!
 //
@@ -182,34 +197,52 @@ func NewMYSQLConnector(sessionGen SessionKeyGenerator, pwHandler PasswordHandler
 	if passwordUserQuery == "" {
 		passwordUserQuery = "SELECT password FROM users WHERE id = ?"
 	}
-	return &MYSQLConnector{sessionGen: sessionGen, pwHandler: pwHandler, passwordUserQuery: passwordUserQuery}
+	return &MYSQLConnector{SessionGen: sessionGen, PwHandler: pwHandler, PasswordUserQuery: passwordUserQuery}
 }
 
-// Initialise the session keys table. You can call this function multiple times,
-// the table only gets created if it doesn't exist already.
-// We store the following information:
-// - user_id: The value that uniquely identifies your user. See UserIDType
-//            for more information
-// - session_key: A key of fixed length. This library will create those keys
-//                for you, so you can for example stuff them in a secure cookie.
-// - login_time:  The time the user logged in and generated this key. But this
-//                must not be the last time the user logged in your application,
-//                simply the time the key was generated / its lifespan was
-//                increased. Also there can be more than one session key for a
-//                user, for example if he/she logged in on multiple devices.
-// - last_seen:   The last time this session key was used / IsValidSession was
-//                invoked for that key.
-// Arguments:
-// db The database to execute the command on.
-// sqlUserKeyType: The mysql type as a string that you use to identifiy your
-//                 users. If set to the empty string ot defaults to "BIGINT UNSIGNED NOT NULL"
-// keyLength:      The length of the session keys in the database. This must be
-//                 a fixed size. It defaults to 128 (because of the DefaultSessionKeyGenerator)
-//                 which produces base64 encoded strings of length 128.
-//                 Set to -1 to use the default.
-// In this database the session keys are unique. So you might get an insert
-// error if you produce the same string twice, but hey, how likely is that with
-// random strings of length 128?
+/*
+InitSessionKeysTable: Initialise the session keys table.
+You can call this function multiple times,
+the table only gets created if it doesn't exist already.
+We store the following information:
+
+user_id:
+The value that uniquely identifies your user. See UserIDType for more information
+
+session_key:
+A key of fixed length. This library will create those keys
+for you, so you can for example stuff them in a secure cookie.
+
+login_time:
+The time the user logged in and generated this key. But this
+must not be the last time the user logged in your application,
+simply the time the key was generated / its lifespan was
+increased. Also there can be more than one session key for a
+user, for example if he/she logged in on multiple devices.
+
+last_seen:
+The last time this session key was used / IsValidSession was
+invoked for that key.
+
+Arguments:
+
+db:
+The database to execute the command on.
+
+sqlUserKeyType:
+The mysql type as a string that you use to identifiy your
+users. If set to the empty string ot defaults to "BIGINT UNSIGNED NOT NULL"
+
+keyLength:
+The length of the session keys in the database. This must be
+a fixed size. It defaults to 128 (because of the DefaultSessionKeyGenerator)
+which produces base64 encoded strings of length 128.
+Set to -1 to use the default.
+
+In this database the session keys are unique. So you might get an insert
+error if you produce the same string twice, but hey, how likely is that with
+random strings of length 128?
+*/
 func (connector *MYSQLConnector) InitSessionKeysTable(db *sql.DB, sqlUserKeyType string, keyLength int) error {
 	if sqlUserKeyType == "" {
 		sqlUserKeyType = "BIGINT UNSIGNED NOT NULL"
@@ -230,8 +263,8 @@ func (connector *MYSQLConnector) InitSessionKeysTable(db *sql.DB, sqlUserKeyType
 	return err
 }
 
-// Generate a new session for the user. This function will create and
-// insert // a new key to the database, no matter if there already is
+// GenSession generates a new session for the user. This function will create
+// and insert a new key to the database, no matter if there already is
 // an entry for the user.
 // It returns the key and a possible error. If the error is not nil
 // it returns always an empty string.
@@ -239,7 +272,7 @@ func (connector *MYSQLConnector) GenSession(db *sql.DB, userID UserIDType) (stri
 	// first get the current time and convert it to UTC
 	now := time.Now().UTC()
 	// now create a new session key
-	key, genError := connector.sessionGen.GenerateSessionKey()
+	key, genError := connector.SessionGen.GenerateSessionKey()
 	if genError != nil {
 		return "", genError
 	}
@@ -252,13 +285,13 @@ func (connector *MYSQLConnector) GenSession(db *sql.DB, userID UserIDType) (stri
 	return key, nil
 }
 
-// This method is for your internal usage: It overwrites an existing sessionKey
-// with a new key and returns the new key.
+// UpdateSessionKey is a method for your internal usage: It overwrites an
+// existing sessionKey with a new key and returns that key.
 // It only updates the login_time, and not the last_seen, I don't know WHY
 // you invoked this method but it doesn't mean that the user was seen...
 func (connector *MYSQLConnector) UpdateSessionKey(db *sql.DB, sessionKey string) (string, error) {
 	now := time.Now().UTC()
-	newKey, genError := connector.sessionGen.GenerateSessionKey()
+	newKey, genError := connector.SessionGen.GenerateSessionKey()
 	if genError != nil {
 		return "", genError
 	}
@@ -279,30 +312,39 @@ func (connector *MYSQLConnector) UpdateSessionKey(db *sql.DB, sessionKey string)
 	return newKey, nil
 }
 
-// Important to notice: can return a valid user AND an error at the same time
-// Note that last_seen means "seen with this token", not last login!
-// IsValidSession checks if the checkKey provided is valid. This means that
-// (a) The key exists in the database
-// (b) The key is still valid
-// How long a key is considered valid can be controlled by the validDuration
-// argument.
-//
-// It returns the userid that is stored together with the key and nil if the
-// key isn't valid any more.
-// It also updates the last_seen field of the key.
-// An important note: This method can return both a userid != nil AND
-// an error != nil. This may happen when the lookup succeeded but somehow
-// the update of the user id failed.
-//
-// You should clean this database from time to time, either by invoking the
-// clear_sessions command (for example with a cronjob) or by invoking
-// the function ClearSessions or even by starting the function
-// ClearSessionsDaemon with "go ClearSessionsDaemon()".
-//
-// The forceUint64 argument is there if you use BIG INT UNSIGNED as keys.
-// By default golang reads that as int64 and not as uint64, so we would throw
-// away half of all possible values... Don't know if you ever manage that many
-// users but I think it's just systematic.
+/*
+IsValidSession checks if a session key is valid given a duration that
+describes how long a key should be considered valid.
+Important to notice: can return a valid user AND an error at the same time
+(see below).
+Note that last_seen means "seen with this token", not last login! If you really
+want something like the last time a user logged in you should store this
+information somewhere else.
+IsValidSession checks if the checkKey provided is valid. This means that
+
+(a) The key exists in the database
+(b) The key is still valid
+
+How long a key is considered valid can be controlled by the validDuration
+argument.
+
+It returns the userid that is stored together with the key and nil if the
+key isn't valid any more.
+It also updates the last_seen field of the key.
+An important note: This method can return both a userid != nil AND
+an error != nil. This may happen when the lookup succeeded but somehow
+the update on the database failed.
+
+You should clean this database from time to time, either by invoking the
+clean_sessions command (for example as a cronjob) or by invoking
+the function CleanSessions or even by starting the function
+CleanSessionsDaemon with "go CleanSessionsDaemon()".
+
+The forceUint64 argument is there if you use BIG INT UNSIGNED as keys.
+By default golang reads that as int64 and not as uint64, so we would throw
+away half of all possible values... Don't know if you ever manage that many
+users but I think it's just systematic.
+*/
 func (connector *MYSQLConnector) IsValidSession(db *sql.DB, validDuration time.Duration, checkKey string, forceUint64 bool) (UserIDType, error) {
 	// first of all get the current time
 	now := time.Now().UTC()
@@ -345,30 +387,31 @@ func (connector *MYSQLConnector) IsValidSession(db *sql.DB, validDuration time.D
 	return nil, nil
 }
 
-// Clear the sessions table from all invalid sessions.
+// CleanSessions cleans the sessions table from all invalid sessions.
 // Invalid means that the login date + validDuration is <= now.
-func (connector *MYSQLConnector) ClearSessions(db *sql.DB, validDuration time.Duration) (sql.Result, error) {
+func (connector *MYSQLConnector) CleanSessions(db *sql.DB, validDuration time.Duration) (sql.Result, error) {
 	now := time.Now().UTC()
 	lastValidLogin := now.Add(-validDuration)
 	stmt := "DELETE FROM user_sessions WHERE login_time <= ?"
 	return db.Exec(stmt, lastValidLogin)
 }
 
-// A function that starts an infinite loop and clears the session table after
-// the duration sleep. Important: This routine never terminates and therefor
-// always has a pointer to your database, so maybe you want to call ClearSessions
-// by yourself in some other fassion or use the cmd clear_sessions.
-func (connector *MYSQLConnector) ClearSessionsDaemon(db *sql.DB, validDuration, sleep time.Duration, printError bool) {
+// CleanSessionsDaemon starts starts an infinite loop and in it cleans the
+// sessions table, then sleeps for duration and starts again.
+// Important: This routine never terminates and therefor always has a pointer
+// to your database, so maybe you want to call CleanSessions
+// by yourself in some other fassion or use the cmd clean_sessions.
+func (connector *MYSQLConnector) CleanSessionsDaemon(db *sql.DB, validDuration, sleep time.Duration, printError bool) {
 	for {
-		_, err := connector.ClearSessions(db, validDuration)
+		_, err := connector.CleanSessions(db, validDuration)
 		if printError && err != nil {
-			log.Println("Error while clearing session database:", err)
+			log.Println("Error while cleaning session database:", err)
 		}
 		time.Sleep(sleep)
 	}
 }
 
-// Remove all sessions for a specific user.
+// RemoveSessionForUser removes all sessions for a specific user.
 // You should call this method each time a user gets deleted / inactive...
 func (connector *MYSQLConnector) RemoveSessionForUser(db *sql.DB, userID UserIDType) error {
 	stmt := "DELETE FROM user_sessions WHERE user_id = ?"
@@ -378,21 +421,43 @@ func (connector *MYSQLConnector) RemoveSessionForUser(db *sql.DB, userID UserIDT
 
 // User stuff
 
-// Initialise a user database.
-// In this scheme a user consists of the following information
-// (most of the stuff taken from Django, but not all from there):
-// - id SERIAL Identifies a user
-// - username string up to 150 characters
-// - first_name string up to 30 characters
-// - last_name string up to 30 characters
-// - email string up to 254 characters
-// - password string of fixed length, if you use the default stuff
-//            the length is 60 (which is also the value if you swet pwLength <= 0)
-// - is_active bool that should be set to true when a user becomes inactive.
-//             You should also set this value to false instead of removing
-//  					 a user permanently
-// - last_login The last time the user logged in, for example over a web form
-// If you need a more complex solution feel free to do so.
+/*
+InitDefaultUserScheme initialises a user database.
+In this scheme a user consists of the following information
+(most of the stuff taken from Django, but not all):
+
+id:
+SERIAL Identifies a user
+
+username:
+string up to 150 characters
+
+first_name:
+string up to 30 characters
+
+last_name:
+string up to 30 characters
+
+email:
+string up to 254 characters
+
+password:
+string of fixed length, if you use the default stuff the length is 60 (which is
+also the value if you swet pwLength <= 0). One important note: I hope by using
+this package you have already figured out *never* to store passwords in
+plaintext!
+
+is_active:
+bool that should be set to true when a user becomes inactive.
+You should also set this value to false instead of removing
+a user permanently. Notice: All verification methods from this package
+ignore the possiblity that a user can be inactive!
+
+last_login:
+The last time the user logged in, for example over a web form
+
+If you need a more complex solution feel free to do so.
+*/
 func (connector *MYSQLConnector) InitDefaultUserScheme(db *sql.DB, pwLength int) error {
 	if pwLength <= 0 {
 		pwLength = DefaultPWLength
@@ -416,14 +481,14 @@ func (connector *MYSQLConnector) InitDefaultUserScheme(db *sql.DB, pwLength int)
 	return err
 }
 
-// Insert a user into the default user scheme, see InitDefaultUserScheme
-// for more information.
+// InsertDefaultUserScheme inserts a user into the default user scheme, see
+// InitDefaultUserScheme for more information.
 func (connector *MYSQLConnector) InsertDefaultUserScheme(db *sql.DB, username,
 	firstName, lastName, email string, plaintextPW []byte) (sql.Result, error) {
 	now := time.Now().UTC()
 
 	// encrypt the password
-	hash, err := connector.pwHandler.GenerateHash(plaintextPW)
+	hash, err := connector.PwHandler.GenerateHash(plaintextPW)
 	if err != nil {
 		return nil, err
 	}
@@ -441,36 +506,43 @@ func (connector *MYSQLConnector) InsertDefaultUserScheme(db *sql.DB, username,
 	return db.Exec(stmt, username, firstName, lastName, email, hash, true, now)
 }
 
-// Check if plaintextPW is the correct password for the user.
-// If the user wasn't found it returns sql.ErrNoRows
+// CheckUserPassword checks if plaintextPW is the correct password for the user.
+// If the user wasn't found it returns sql.ErrNoRows.
 func (connector *MYSQLConnector) CheckUserPassword(db *sql.DB, uid UserIDType, plaintextPW []byte) (bool, error) {
 	// First lookup the password using the predefined query
-	row := db.QueryRow(connector.passwordUserQuery, uid)
+	row := db.QueryRow(connector.PasswordUserQuery, uid)
 	var password []byte
 	if err := row.Scan(&password); err != nil {
 		return false, err
 	}
 	// now that we got the password we verify it
-	ok, err := connector.pwHandler.CheckPassword(password, plaintextPW)
+	ok, err := connector.PwHandler.CheckPassword(password, plaintextPW)
 	if err != nil {
 		return false, err
 	}
 	return ok, nil
 }
 
-// Using the default password scheme this lookup will return both
-// the userid and the result of CheckUserPassword in one lookup.
-// Note: you can also use your own scheme here, as long as it has
-// the entries id (type BIG INT UNSIGNED), password (text of fixed
-// length) and username (text).
-// Works otherwise the same was as CheckUserPassword does.
-// The return values are as follows:
-// - The first one is the user id found, on error this will always be 0
-// - The second one is true if the verification was successful and false otherwise
-// - The error is any error that occurred.
-// Note that it's also possible that an id != 0 is returned but the
-// verification can still have failed! Always check the bool field
-// if you want to check if the authentication was successful.
+/*
+CheckDefaultUserPassword uses the default users scheme to look up the user id
+and check the password with only one query.
+
+Note: you can also use your own scheme here, as long as it has the entries id
+(type BIG INT UNSIGNED), password (text of fixed length) and username (text).
+Works otherwise the same as CheckUserPassword does.
+
+The return values are as follows:
+
+The first one is the user id found, on error this will always be 0
+
+The second one is true if the verification was successful and false otherwise
+
+The error is any error that occurred during any of the steps above.
+
+Note that it's also possible that an id != 0 is returned but the verification
+still has failed! Always check the bool field if you want to check if the
+authentication was successful.
+*/
 func (connector *MYSQLConnector) CheckDefaultUserPassword(db *sql.DB, username string, plaintextPW []byte) (uint64, bool, error) {
 	// do a lookup on the users table
 	query := "SELECT id, password FROM users WHERE username = ?"
@@ -483,21 +555,25 @@ func (connector *MYSQLConnector) CheckDefaultUserPassword(db *sql.DB, username s
 	}
 
 	// ok, verify password
-	ok, err := connector.pwHandler.CheckPassword(password, plaintextPW)
+	ok, err := connector.PwHandler.CheckPassword(password, plaintextPW)
 	if err != nil {
 		return 0, false, err
 	}
 	return id, ok, nil
 }
 
-// This method logs in a user and generates a new session key.
+// LoginDefaultUser logs in a user and generates a new session key (for the
+// default user database).
+//
 // You should call this method every time a user has successfully
 // logged in, i.e. you have checked a session key or verified the
 // password.
+//
 // This method generates a new session key and stores it in the
 // database. It also updates the last_login field in the users table.
 // If the user was not found in the database it returns
 // sql.ErrNoRows.
+//
 // If an error occurred it always returns an empty string.
 func (connector *MYSQLConnector) LoginDefaultUser(db *sql.DB, uid uint64) (string, error) {
 	now := time.Now().UTC()
