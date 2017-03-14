@@ -10,7 +10,7 @@ COPY . $GOPATH/src/github.com/FabianWe/goauth
 
 WORKDIR /$GOPATH/src/github.com/FabianWe/goauth
 
-RUN go get -v -d
+RUN go get -v -d ...
 
 # bcrypt still uses the old context version, update to the new one
 # this should fix the bug, but acme still uses some part of the old package...
