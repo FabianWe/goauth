@@ -49,6 +49,8 @@ This method has three arguments:
  2. sessionKey: The key you want to check, for example a user sent it to you in a cookie.
  3. forceUint64: This is maybe a really strange argument but I wanted it to be there. If true the returned id is forced to be of type uint64. The reason will be explained below.
 
+This method also updates the `last_seen` column to the current date.
+
 That's it, you can now create sessions for your users (by passing the id of the user) and check if a session key is still valid (retrieve the userid from IsValidSession).
 Now I'll get you into some details of the method we used above. The [NewMYSQLConnector](https://godoc.org/github.com/FabianWe/goauth#NewMYSQLConnector) method accepts as first argument a [SessionKeyGenerator](https://godoc.org/github.com/FabianWe/goauth#SessionKeyGenerator). This is an interface type that generates new session keys. You can specify your own our use the default one that produces 128 length base64 strings.
 
@@ -64,7 +66,7 @@ type UserIDType interface{}
 ```
 So that you can pass every kind of key to it. A last note: when retrieving the key a pointer to an `interface{}` is passed to the sql [Scan](https://golang.org/pkg/database/sql/#Row.Scan) method. Your database driver in this case assignes a type to it. That's why I added the argument `forceUint64` to the method: Usually SQL ids are bit unsigned integers but the mysql driver converts it to an `int64`.  With this method I ensure that the underlying value is certainly of type `uint64`.
 
-### Session Tokens: Final Words
+### Session Keys: Final Words
 The [GenSession](https://godoc.org/github.com/FabianWe/goauth#MYSQLConnector.GenSession) function adds an entry to the sessions table even if there is already a session key for that user. For example if a user logs in on multiple devices he/she can have a valid key on each one. If you don't want this behaviour you should write your own method to control this stuff. The database scheme for sessions is rather straight forward:
 
 ```mysql
@@ -165,9 +167,14 @@ Your workflow usually is something like this:
  
  But this workflow may vary. If you use the default theme you can use the function [LoginDefaultUser](https://godoc.org/github.com/FabianWe/goauth#MYSQLConnector.LoginDefaultUser).
 
-When a user is delete / the active flag set to false you should also remove all keys of that user, you can use  [RemoveSessionForUser](https://godoc.org/github.com/FabianWe/goauth#MYSQLConnector.RemoveSessionForUser) for that.
+When a user is delete / the active flag set to false you should also remove all keys of that user, you can use  [RemoveSessionForUser](https://godoc.org/github.com/FabianWe/goauth#MYSQLConnector.RemoveSessionForUser) for that. Also when the password for a user gets change you should invalid all current keys of the user by removing them.
 
-There is also a function [UpdateSessionKey](https://godoc.org/github.com/FabianWe/goauth#MYSQLConnector.UpdateSessionKey) if someone ever needs it.
+Also if you detect any form of malicious behaviour on your server you should drop the table `user_sessions`. There is also a function [DropSessionsTable](https://godoc.org/github.com/FabianWe/goauth#MYSQLConnector.DropSessionsTable)  that simply uses `DROP TABLE IF EXISTS user_sessions`.
+
+There is also a function [IsValidSessionLastSeen](https://godoc.org/github.com/FabianWe/goauth#MYSQLConnector.IsValidSessionLastSeen) if someone ever needs it. This works exactly as `IsValidSession` but compares the `last_seen` field with the duration given the current time rather than `last_login`. It also updates the `last_seen` field on success, so whenever the user is accepted via a "login via key" he/she automatically extends the session key life span. But note that the `CleanSessions` stuff still uses `last_login`! So by this you can let a user authenticate via key again and again but set an upper limit when you absolutely want to destroy a key. You could also use `UpdateSessionKey` from time to time to generate a new session key if you want to issue a new one from time to time. Note that this method updates `last_login` though!
+
+### Session Key Lifespan Behaviour
+You might have noticed that in this default behaviour a session key at some time becomes invalid. I personally don't like the idean very much of a session that restores itself again and again. However you might want exactly that. The idea was that `last_login` refers to the time a user really logged in, I mean via a webform or something and was not automatically assumed to be logged in by using this key. But you can also use [UpdateSessionKey](https://godoc.org/github.com/FabianWe/goauth#MYSQLConnector.UpdateSessionKey)
 
 Anyway, we're talking about very important stuff here! So be sure to read the [documentation](https://godoc.org/github.com/FabianWe/goauth) properly before you trust on something!
 
@@ -177,3 +184,4 @@ I hope this library helps you and I like some feedback!
 This library uses the go-sql-driver/mysql driver (unchanged) licensed under the [Mozilla Public License Version 2.0](https://www.mozilla.org/en-US/MPL/2.0/), the source code can be found [here](https://github.com/go-sql-driver/mysql).
 
 It also uses bcrypt for golang, the source and license information ca be found [here](https://github.com/golang/crypto).
+
