@@ -355,4 +355,124 @@ type SQLSessionQueries interface {
 	TimeFromScanType(val interface{}) (time.Time, error)
 }
 
+// This interface is used as a base for all sql connections.
+// It must return the appropriate query for several tasks.
+// The documentation specifies some example of how the query might look like
+// in MYSQL syntax so you get a better understanding of what is intended.
+// Ensure that your ? replace parameters are present in the right order!
+// That's why I've included the example queries.
+type SQLUserQueries interface {
+	// Query to intialize the users table. You should always create the table
+	// only if it does not exist yet.
+	// Example: See for yourself, too long to post here.
+	// But you have to configure your database s.t. it can store passwords of
+	// fixed length (format it into your query).
+	InitDefaultUserSchemeQ(pwLength int) string
+
+	// Query to insert a new user into your scheme, here is the MySQL version:
+	// "INSERT INTO users (username, first_name, last_name, email, password, is_active, last_login)
+	//	VALUES(?, ?, ?, ?, ?, ?, ?);"
+	InsertDefaultUserSchemeQ() string
+
+	// Query to get the id and password from the database given the username in
+	// one run.
+	// Example:
+	// "SELECT id, password FROM users WHERE username = ?"
+	CheckDefaultUserPasswordQ() string
+
+	// Query to set the last_login field to the current time given user id.
+	// Example:
+	// "UPDATE users SET last_login = ? WHERE id = ?"
+	UpdateLastLoginDefaultUserQ() string
+}
+
+type UserDBConnector interface {
+	/*
+		   InitDefaultUserScheme initialises a user database.
+		   In this scheme a user consists of the following information
+		   (most of the stuff taken from Django, but not all):
+
+		   id:
+		   SERIAL Identifies a user
+
+		   username:
+		   string up to 150 characters
+
+		   first_name:
+		   string up to 30 characters
+
+		   last_name:
+		   string up to 30 characters
+
+		   email:
+		   string up to 254 characters
+
+		   password:
+		   string of fixed length, if you use the default stuff the length is 60
+			 (which is also the value if you swet pwLength <= 0). One important note:
+			 I hope by using this package you have already figured out *never* to store
+			 passwords in plaintext!
+
+		   is_active:
+		   bool that should be set to true when a user becomes inactive.
+		   You should also set this value to false instead of removing
+		   a user permanently. Notice: All verification methods from this package
+		   ignore the possiblity that a user can be inactive!
+
+		   last_login:
+		   The last time the user logged in, for example over a web form
+
+		   If you need a more complex solution feel free to do so.
+	*/
+	InitDefaultUserScheme(pwLength int) error
+
+	// InsertDefaultUserScheme inserts a user into the default user scheme, see
+	// InitDefaultUserScheme for more information.
+	InsertDefaultUserScheme(username, firstName,
+		lastName, email string, plaintextPW []byte) error
+
+	// CheckUserPassword checks if plaintextPW is the correct password for the user.
+	// If the user wasn't found it returns sql.ErrNoRows.
+	CheckUserPassword(uid UserIDType, plaintextPW []byte) (bool, error)
+
+	/*
+		CheckDefaultUserPassword uses the default users scheme to look up the user
+		id and check the password with only one query.
+
+		Note: you can also use your own scheme here, as long as it has the entries id
+		(type BIG INT UNSIGNED), password (text of fixed length) and username (text).
+		Works otherwise the same as CheckUserPassword does.
+
+		The return values are as follows:
+
+		The first one is the user id found, on error this will always be 0
+
+		The second one is true if the verification was successful and false otherwise
+
+		The error is any error that occurred during any of the steps above.
+
+		Note that it's also possible that an id != 0 is returned but the verification
+		still has failed! Always check the bool field if you want to check if the
+		authentication was successful.
+	*/
+	CheckDefaultUserPassword(username string, plaintextPW []byte) (uint64, bool, error)
+
+	// LoginDefaultUser logs in a user and generates a new session key (for the
+	// default user database).
+	//
+	// You should call this method every time a user has successfully
+	// logged in, i.e. you have checked a session key or verified the
+	// password.
+	//
+	// This method generates a new session key and stores it in the
+	// database. It also updates the last_login field in the users table.
+	// If the user was not found in the database it returns
+	// sql.ErrNoRows.
+	//
+	// If an error occurred it always returns an empty string.
+	// Note that the sessionConnector is usually the same as your user connector.
+	// For example the SQLConnector supports both, sessions and users.
+	LoginDefaultUser(uid uint64, sessionConnector DBConnector) (string, error)
+}
+
 //////// END DATABASE ////////

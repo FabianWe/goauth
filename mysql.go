@@ -28,6 +28,7 @@ import (
 	"time"
 )
 
+// An implementation of SQLSessionConnector using MySQL queries.
 type MySQLQueries struct{}
 
 // NewMySQLQueries creates a new SQLSessionConnector that uses MySQL.
@@ -87,4 +88,51 @@ func (q MySQLQueries) TimeFromScanType(val interface{}) (time.Time, error) {
 	// let's hope this is correct... however who came up with THIS parse
 	// function definition in Go?!
 	return time.Parse("2006-01-02 15:04:05", s)
+}
+
+// An implementation of SQLUserQueries using MySQL queries.
+type MySQLUserQueries struct{}
+
+// Creates a new MySQLUserQueries instance.
+func NewMySQLUserQueries() MySQLUserQueries {
+	return MySQLUserQueries{}
+}
+
+func (q MySQLUserQueries) InitDefaultUserSchemeQ(pwLength int) string {
+	stmt := `
+	CREATE TABLE IF NOT EXISTS users (
+		id SERIAL,
+		username VARCHAR(150) NOT NULL,
+		first_name VARCHAR(30) NOT NULL,
+		last_name VARCHAR(30) NOT NULL,
+		email VARCHAR(254),
+		password CHAR(%d),
+		is_active BOOL,
+		last_login DATETIME,
+		PRIMARY KEY(id),
+		UNIQUE(username)
+	);
+	`
+	return fmt.Sprintf(stmt, pwLength)
+}
+
+func (q MySQLUserQueries) InsertDefaultUserSchemeQ() string {
+	return `
+	INSERT INTO users (username, first_name, last_name, email, password, is_active, last_login)
+		VALUES(?,
+       ?,
+       ?,
+       ?,
+       ?,
+       ?,
+       ?);
+	`
+}
+
+func (q MySQLUserQueries) CheckDefaultUserPasswordQ() string {
+	return "SELECT id, password FROM users WHERE username = ?"
+}
+
+func (q MySQLUserQueries) UpdateLastLoginDefaultUserQ() string {
+	return "UPDATE users SET last_login = ? WHERE id = ?"
 }
