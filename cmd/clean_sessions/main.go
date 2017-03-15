@@ -57,8 +57,8 @@ func main() {
 		fmt.Println("Can't parse", durationStr, "as duration:", durationErr)
 		os.Exit(1)
 	}
-	c := goauth.NewMYSQLConnector(nil, nil, "")
-	res, deleteErr := c.CleanSessions(db, duration)
+	c := goauth.NewMySQLConnector(db, nil, nil, "")
+	rowsAffected, deleteErr := c.CleanSessions(duration)
 
 	if deleteErr != nil {
 		fmt.Println("Can't remove entries from database:", deleteErr)
@@ -66,9 +66,8 @@ func main() {
 	}
 
 	fmt.Printf("Success! ")
-	rowsAffected, resErr := res.RowsAffected()
 
-	if resErr != nil {
+	if rowsAffected < 0 {
 		fmt.Println("Can't show you the details, but I removed old entries...")
 	} else {
 		fmt.Printf("Removed %d entries.\n", rowsAffected)
