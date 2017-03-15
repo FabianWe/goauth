@@ -24,9 +24,15 @@ package goauth
 
 // MySQLQueries is an implementation of SQLSessionConnector that uses MySQL.
 import (
+	"database/sql"
 	"fmt"
 	"time"
 )
+
+// NewMySQLConnector creates a new SQLConnector using MySQL query generator.
+func NewMySQLConnector(db *sql.DB, sessionGen SessionKeyGenerator, pwHandler PasswordHandler, passwordUserQuery string) *SQLConnector {
+	return NewSQLConnector(db, NewMySQLQueries(), sessionGen, NewMySQLUserQueries(), pwHandler, passwordUserQuery)
+}
 
 // An implementation of SQLSessionConnector using MySQL queries.
 type MySQLQueries struct{}

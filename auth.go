@@ -232,7 +232,7 @@ type DBConnector interface {
 		argument.
 
 		It returns the userid that is stored together with the key and nil if the
-		key isn't valid any more.
+		key isn't valid any more (or the key was not found at all).
 		It also updates the last_seen field of the key.
 		An important note: This method can return both a userid != nil AND
 		an error != nil. This may happen when the lookup succeeded but somehow
@@ -261,6 +261,10 @@ type DBConnector interface {
 	// DropSessionsTable deletes the table user_sessions. You should do this
 	// every time your server security might have been compromised.
 	DropSessionsTable() error
+
+	// RemoveSessionForUser removes all sessions for a specific user.
+	// You should call this method each time a user gets deleted / inactive...
+	RemoveSessionForUser(userID UserIDType) error
 }
 
 // A helper function that is usefull if you want to implement a DBConnector

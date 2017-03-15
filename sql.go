@@ -227,6 +227,12 @@ func (connector *SQLConnector) DropSessionsTable() error {
 	return err
 }
 
+func (connector *SQLConnector) RemoveSessionForUser(userID UserIDType) error {
+	stmt := connector.QueryGen.RemoveSessionForUserIDQ()
+	_, err := connector.DB.Exec(stmt, userID)
+	return err
+}
+
 // User stuff
 
 func (connector *SQLConnector) InitDefaultUserScheme(pwLength int) error {
