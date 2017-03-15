@@ -156,6 +156,132 @@ func (gen DefaultSessionKeyGenerator) GenerateSessionKey() (string, error) {
 // with the = operator.
 type UserIDType interface{}
 
+type DBConnector interface {
+	/*
+		   InitSessionKeysTable: Initialise the session keys table.
+		   You can call this function multiple times, the table only gets created if it doesn't
+		   exist already.
+		   We store the following information:
+
+		   user_id:
+		   The value that uniquely identifies your user. See UserIDType for more information
+
+		   session_key:
+		   A key of fixed length. This library will create those keys
+		   for you, so you can for example stuff them in a secure cookie.
+
+		   login_time:
+		   The time the user logged in and generated this key. But this
+		   must not be the last time the user logged in your application,
+		   simply the time the key was generated.
+			 Also there can be more than one session key for a user, for example if
+			 he/she logged in on multiple devices.
+
+		   last_seen:
+		   The last time this session key was used / IsValidSession was
+		   invoked for that key.
+
+		   Arguments:
+
+		   sqlUserKeyType:
+		   The sql type as a string that you use to identifiy your
+		   users. In MySQL if set to the empty string ot defaults to
+			 "BIGINT UNSIGNED NOT NULL". Any implementation should provide a sensible
+			 default value that is used when the empty string is used.
+
+		   keyLength:
+		   The length of the session keys in the database. This must be
+		   a fixed size. It defaults to 128
+			 (because of the DefaultSessionKeyGenerator)
+		   which produces base64 encoded strings of length 128.
+		   Set to -1 to use the default.
+
+		   In this database the session keys are unique. So you might get an insert
+		   error if you produce the same string twice, but hey, how likely is that with
+		   random strings of length 128?
+	*/
+	InitSessionKeysTable(sqlUserKeyType string, keyLength int) error
+
+	// GenSession generates a new session for the user. This function will create
+	// and insert a new key to the database, no matter if there already is
+	// an entry for the user.
+	// It returns the key and a possible error. If the error is not nil
+	// it returns always an empty string.
+	GenSession(userID UserIDType) (string, error)
+
+	// UpdateSessionKey is a method for your internal usage: It overwrites an
+	// existing sessionKey with a new key and returns that key.
+	// It only updates the login_time, and not the last_seen, I don't know WHY
+	// you invoked this method but it doesn't mean that the user was seen...
+	UpdateSessionKey(sessionKey string) (string, error)
+
+	/*
+		IsValidSession checks if a session key is valid given a duration that
+		describes how long a key should be considered valid.
+		Important to notice: can return a valid user AND an error at the same time
+		(see below).
+		Note that last_seen means "seen with this token", not last login! If you really
+		want something like the last time a user logged in you should store this
+		information somewhere else.
+		IsValidSession checks if the checkKey provided is valid. This means that
+
+		(a) The key exists in the database
+		(b) The key is still valid
+
+		How long a key is considered valid can be controlled by the validDuration
+		argument.
+
+		It returns the userid that is stored together with the key and nil if the
+		key isn't valid any more.
+		It also updates the last_seen field of the key.
+		An important note: This method can return both a userid != nil AND
+		an error != nil. This may happen when the lookup succeeded but somehow
+		the update on the database failed.
+
+		You should clean this database from time to time, for example by invoking
+		the function CleanSessions or even by starting the function
+		CleanSessionsDaemon with "go CleanSessionsDaemon()". Or you create a
+		cronjob and write a small executable.
+
+		The forceUint64 argument is there if you use BIG INT UNSIGNED as keys.
+		By default golang reads that as int64 and not as uint64, so we would throw
+		away half of all possible values... Don't know if you ever manage that many
+		users but I think it's just systematic. This may be a problem specific for
+		the MySQL driver, so other implementations might ignore this value.
+	*/
+	IsValidSession(validDuration time.Duration, checkKey string, forceUint64 bool) (UserIDType, error)
+
+	// The same as IsValidSession but it check the last seen field instead of the login_time.
+	IsValidSessionLastSeen(validDuration time.Duration, checkKey string, forceUint64 bool) (UserIDType, error)
+
+	// CleanSessions cleans the sessions table from all invalid sessions.
+	// Invalid means that the login date + validDuration is <= now.
+	CleanSessions(validDuration time.Duration) (int64, error)
+
+	// DropSessionsTable deletes the table user_sessions. You should do this
+	// every time your server security might have been compromised.
+	DropSessionsTable() error
+}
+
+// A helper function that is usefull if you want to implement a DBConnector
+// for yourself.
+// If you have already looked up a key and got the timestamp you want
+// to compare with now given a valid duration (as a time.Duration)
+// you can use and should use this method to check if that key is
+// still valid.
+// This inforces more consistent behaviour between all implementations of
+// DBConnector.
+// So referenceTime would be either last_login or last_seen.
+// This method returns a bool and a time.Time. time.Time is the current time
+// you can insert in order to update your last_seen field.
+// I only return it s.t. the time we used to check and the time the insert
+// takes place are better coordinated. Useless because it's so ms, but anyway.
+func CheckSessionFromTime(validDuration time.Duration, referenceTime time.Time) (bool, time.Time) {
+	now := time.Now().UTC()
+	validUntil := referenceTime.Add(validDuration)
+	return now.Before(validUntil), now
+}
+
 // This interface is used as a base for all sql connections.
 // It must return the appropriate query for several tasks.
 // The documentation specifies some example of how the query might look like
