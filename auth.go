@@ -351,23 +351,36 @@ away half of all possible values... Don't know if you ever manage that many
 users but I think it's just systematic.
 */
 func (connector *MYSQLConnector) IsValidSession(db *sql.DB, validDuration time.Duration, checkKey string, forceUint64 bool) (UserIDType, error) {
+	return isValidSessionFromColumn(db, validDuration, checkKey, forceUint64, "login_time")
+}
+
+// The same as IsValidSession but it check the last seen field instead of the login_time.
+func (connector *MYSQLConnector) IsValidSessionLastSeen(db *sql.DB, validDuration time.Duration, checkKey string, forceUint64 bool) (UserIDType, error) {
+	return isValidSessionFromColumn(db, validDuration, checkKey, forceUint64, "last_seen")
+}
+
+// The real code for checking a session key, see IsValidSession for more
+// details, this one simply uses an additional string column name
+// that is either "login_time" or "last_seen".
+func isValidSessionFromColumn(db *sql.DB, validDuration time.Duration, checkKey string, forceUint64 bool, columnName string) (UserIDType, error) {
 	// first of all get the current time
 	now := time.Now().UTC()
 	// get all entries from the database that satisfy the conditon that:
 	// - the key exists
 	// - now is before the time the entry was created + the given duration
-	query := "SELECT user_id, login_time FROM user_sessions WHERE session_key = ?"
+	query := "SELECT user_id, %s FROM user_sessions WHERE session_key = ?"
+	query = fmt.Sprintf(query, columnName)
 	row := db.QueryRow(query, checkKey)
 	var id interface{}
-	// var loginTime time.Time
-	var loginTime mysql.NullTime
+	// var checkTime time.Time
+	var checkTime mysql.NullTime
 	var err error
 	if forceUint64 {
 		var unsignedID uint64
-		err = row.Scan(&unsignedID, &loginTime)
+		err = row.Scan(&unsignedID, &checkTime)
 		id = unsignedID
 	} else {
-		err = row.Scan(&id, &loginTime)
+		err = row.Scan(&id, &checkTime)
 	}
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -378,7 +391,7 @@ func (connector *MYSQLConnector) IsValidSession(db *sql.DB, validDuration time.D
 		}
 	}
 	// we got a result, so now check if the provided session key is still valid
-	validUntil := loginTime.Time.Add(validDuration)
+	validUntil := checkTime.Time.Add(validDuration)
 	if now.Before(validUntil) {
 		// update last seen
 		updateStmt := "UPDATE user_sessions SET last_seen=? WHERE session_key = ?"
@@ -406,6 +419,8 @@ func (connector *MYSQLConnector) CleanSessions(db *sql.DB, validDuration time.Du
 // Important: This routine never terminates and therefor always has a pointer
 // to your database, so maybe you want to call CleanSessions
 // by yourself in some other fassion or use the cmd clean_sessions.
+// If printError is set to true every error while calling CleanSessions will
+// be reported to std Err with log.Println.
 func (connector *MYSQLConnector) CleanSessionsDaemon(db *sql.DB, validDuration, sleep time.Duration, printError bool) {
 	for {
 		_, err := connector.CleanSessions(db, validDuration)
@@ -422,6 +437,14 @@ func (connector *MYSQLConnector) RemoveSessionForUser(db *sql.DB, userID UserIDT
 	stmt := "DELETE FROM user_sessions WHERE user_id = ?"
 	_, err := db.Exec(stmt, userID)
 	return err
+}
+
+// DropSessionsTable deletes the table user_sessions. You should do this
+// every time your server security might have been compromised.
+func (connector *MYSQLConnector) DropSessionsTable(db *sql.DB) (sql.Result, error) {
+	stmt := "DROP TABLE IF EXISTS user_sessions"
+	return db.Exec(stmt)
+
 }
 
 // User stuff

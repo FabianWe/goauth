@@ -1,7 +1,7 @@
 FROM golang:1.8-alpine
 MAINTAINER Fabian Wenzelmann <fabianwen@posteo.eu>
 
-RUN apk add --update bash git && rm -rf /var/cache/apk/*
+RUN apk add --no-cache bash git
 
 COPY docker_entrypoint.sh /
 RUN chmod +x /docker_entrypoint.sh
