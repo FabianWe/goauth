@@ -257,6 +257,9 @@ type DBConnector interface {
 	// CleanSessions cleans the sessions table from all invalid sessions.
 	// Invalid means that the login date + validDuration is <= now.
 	// Returns the number of affected rows and a possible error.
+	// Note that the returned value can be -1 even if there was no error!
+	// This means that your database has no support for getting the number of affected
+	// rows.
 	CleanSessions(validDuration time.Duration) (int64, error)
 
 	// DropSessionsTable deletes the table user_sessions. You should do this
@@ -433,8 +436,17 @@ type UserDBConnector interface {
 
 	// InsertDefaultUserScheme inserts a user into the default user scheme, see
 	// InitDefaultUserScheme for more information.
+	// This method returns the id in the database for the user.
+	// This value can be -1 if your database does not support this.
+	// So if the err is not nil but you get -1 you shouldn't worry, the user was
+	// created but you didn't get the id.
+	// But: This only gets an int64, not uint64. If you have many users this might
+	// get difficult, but we're not google here...
+	// This method does NOT create a session. If you want that you have to
+	// do so by yourself (the account might have been created from an admin or
+	// something like that).
 	InsertDefaultUserScheme(username, firstName,
-		lastName, email string, plaintextPW []byte) error
+		lastName, email string, plaintextPW []byte) (int64, error)
 
 	// CheckUserPassword checks if plaintextPW is the correct password for the user.
 	// If the user wasn't found it returns sql.ErrNoRows.

@@ -245,18 +245,25 @@ func (connector *SQLConnector) InitDefaultUserScheme(pwLength int) error {
 }
 
 func (connector *SQLConnector) InsertDefaultUserScheme(username, firstName,
-	lastName, email string, plaintextPW []byte) error {
+	lastName, email string, plaintextPW []byte) (int64, error) {
 	now := time.Now().UTC()
 
 	// encrypt the password
 	hash, err := connector.PwHandler.GenerateHash(plaintextPW)
 	if err != nil {
-		return err
+		return -1, err
 	}
 
 	stmt := connector.UserQueryGen.InsertDefaultUserSchemeQ()
-	_, sqlErr := connector.DB.Exec(stmt, username, firstName, lastName, email, hash, true, now)
-	return sqlErr
+	res, sqlErr := connector.DB.Exec(stmt, username, firstName, lastName, email, hash, true, now)
+	if sqlErr != nil {
+		return -1, sqlErr
+	}
+	newID, accErr := res.LastInsertId()
+	if accErr != nil {
+		return -1, nil
+	}
+	return newID, nil
 }
 
 // CheckUserPassword checks if plaintextPW is the correct password for the user.
@@ -286,6 +293,8 @@ func (connector *SQLConnector) CheckDefaultUserPassword(username string, plainte
 	if err := row.Scan(&id, &password); err != nil {
 		return 0, false, err
 	}
+
+	fmt.Println("in method")
 
 	// ok, verify password
 	ok, err := connector.PwHandler.CheckPassword(password, plaintextPW)

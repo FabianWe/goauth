@@ -96,15 +96,16 @@ func (q MySQLQueries) TimeFromScanType(val interface{}) (time.Time, error) {
 	return time.Parse("2006-01-02 15:04:05", s)
 }
 
-// An implementation of SQLUserQueries using MySQL queries.
+// MySQLUserQueries is an implementation of SQLUserQueries using MySQL queries.
 type MySQLUserQueries struct{}
 
-// Creates a new MySQLUserQueries instance.
+// NewMySQLUserQueries creates a new MySQLUserQueries instance.
 func NewMySQLUserQueries() MySQLUserQueries {
 	return MySQLUserQueries{}
 }
 
 func (q MySQLUserQueries) InitDefaultUserSchemeQ(pwLength int) string {
+	fmt.Println("SO EXCITED!")
 	stmt := `
 	CREATE TABLE IF NOT EXISTS users (
 		id SERIAL,
