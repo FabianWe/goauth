@@ -256,6 +256,7 @@ type DBConnector interface {
 
 	// CleanSessions cleans the sessions table from all invalid sessions.
 	// Invalid means that the login date + validDuration is <= now.
+	// Returns the number of affected rows and a possible error.
 	CleanSessions(validDuration time.Duration) (int64, error)
 
 	// DropSessionsTable deletes the table user_sessions. You should do this
