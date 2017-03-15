@@ -17,6 +17,13 @@ I wanted to develop some small Go web applications without a big framework or so
 ## Installation
 Installation with `go get github.com/FabianWe/goauth/` should do the trick. One important notice though: The [bcrypt](https://godoc.org/github.com/FabianWe/goauth "bcrypt") package still uses the old "golang.org/x/net/context" package. I tried to install it inside a docker container (so a "fresh" installation of Go) and it didn't work because the import can't be resolved in newer versions of Go. I tried even `go tool fix -force context /go/src/golang.org/x/crypto/` (here is the problem). But the acme package uses a package from context that go fix can't fix... So in my docker installation I ended up simply removing the file (see [Dockerfile](./Dockerfile)). Of course this is not a suitable option. So you may have to install the old context package by checking out the project our something. I hope this issue resolves itself once the old imports are gone.
 
+If you're planning to you *sqlite* (support for that should be out very soon) take care of the installation notice, I quote:
+"This package can be installed with the go get command
+
+    go get github.com/mattn/go-sqlite3
+
+go-sqlite3 is cgo package. If you want to build your app using go-sqlite3, you need gcc. However, if you install go-sqlite3 with go install github.com/mattn/go-sqlite3, you don't need gcc to build your app anymore."
+
 ## Where do I start?
 Well, that depends on what you wish to do. First create a mysql database connection using [github.com/go-sql-driver/mysql](github.com/go-sql-driver/mysql) or any other driver that works with MySQL.
 
@@ -185,3 +192,4 @@ I've just shown you how to do stuff with MySQL, but I'm working on other impleme
 This library uses the go-sql-driver/mysql driver (unchanged) licensed under the [Mozilla Public License Version 2.0](https://www.mozilla.org/en-US/MPL/2.0/), the source code can be found [here](https://github.com/go-sql-driver/mysql).
 
 It also uses bcrypt for golang, the source and license information ca be found [here](https://github.com/golang/crypto).
+
