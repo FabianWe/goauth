@@ -23,12 +23,21 @@
 package main
 
 import (
-	"fmt"
+	"context"
+	"log"
+	"time"
 
 	"github.com/FabianWe/goauth"
 )
 
 func main() {
 	c := goauth.NewInMemoryController()
-	fmt.Println(c)
+	if initErr := c.Init(); initErr != nil {
+		log.Fatal(initErr)
+	}
+	b := context.Background()
+	ctx, cancelFunc := context.WithCancel(b)
+	c.DeleteEntriesDaemon(time.Duration(5*time.Second), ctx, true)
+	time.Sleep(15 * time.Second)
+	cancelFunc()
 }

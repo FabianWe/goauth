@@ -44,6 +44,10 @@ func NewInMemoryController() *SessionController {
 	return NewSessionController(NewInMemoryHandler())
 }
 
+func (h *InMemoryHandler) Init() error {
+	return nil
+}
+
 func (h *InMemoryHandler) GetData(key string) (*SessionKeyData, error) {
 	h.mutex.RLock()
 	value, ok := h.keys[key]

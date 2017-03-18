@@ -23,8 +23,10 @@
 package goauth
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
+	"log"
 	"net/http"
 	"time"
 
@@ -48,6 +50,7 @@ const (
 	// The default length for random bytes array, this creates random base64
 	// strings of length 64.
 	DefaultRandomByteLength = 48
+	DefaultKeyLength        = 64
 )
 
 // SessionKeyData type is used as a result in a key lookup. It contains the user
@@ -124,6 +127,13 @@ func GenRandomBase64(n int) (string, error) {
 // This i
 // TODO: int64 overflow
 type SessionHandler interface {
+	// Initialize storage s.t. it is ready for use. This could be for
+	// example a create table statement. You should however not overwrite
+	// any existing data (if you have any).
+	// For example only create a table if it does not already exist.
+	// This method should be called each time you start your program.
+	Init() error
+
 	// GetData is a function to get the user data for a given key.
 	// It should return nil as key and KeyNotFoundErr if the key was not found
 	// and nil and some other error in case something went wrong during lookup.
@@ -148,6 +158,7 @@ type SessionHandler interface {
 	DeleteInvalidKeys() (int64, error)
 
 	// DeleteKey removes the key from the storage, return an error if one occurred.
+	// It doesn't return an error if the key is invalid / not found!
 	DeleteKey(key string) error
 }
 
@@ -281,4 +292,57 @@ func (c SessionController) CreateAuthSession(r *http.Request, store sessions.Sto
 	session.Options.MaxAge = int(validDuration / time.Second)
 	// everything ok
 	return data, key, session, nil
+}
+
+// NotAuthSessionErr ==> not so bad
+// Something different ==> internal error
+func (c SessionController) EndSession(r *http.Request, store sessions.Store) error {
+	session, err := store.Get(r, c.SessionName)
+	if err != nil {
+		return err
+	}
+
+	// check for the key value stored in session
+	keyVal, hasKey := session.Values[SessionKey]
+
+	if !hasKey {
+		return NotAuthSessionErr
+	}
+
+	key, ok := keyVal.(string)
+	if !ok {
+		return errors.New("Internal lookup error.")
+	}
+	return c.DeleteKey(key)
+}
+
+func (c SessionController) DeleteEntriesDaemon(sleep time.Duration, ctx context.Context, reportErr bool) {
+	go func() {
+		if ctx == nil {
+			for {
+				if _, err := c.DeleteInvalidKeys(); reportErr && err != nil {
+					log.Println(err)
+				}
+				time.Sleep(sleep)
+			}
+		} else {
+			// we could use time.Tick but I find this more suitable...
+			next := make(chan bool, 1)
+			next <- true
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-next:
+					if _, err := c.DeleteInvalidKeys(); reportErr && err != nil {
+						log.Println(err)
+					}
+					go func() {
+						time.Sleep(sleep)
+						next <- true
+					}()
+				}
+			}
+		}
+	}()
 }
