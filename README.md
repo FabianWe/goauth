@@ -1,3 +1,5 @@
+*A major restructure is going in, don't you just yet, this documentation is outdated*
+
 # goauth
 Package goauth provides convinient functions to authenticate users, encrypt their passwords and create and check login sessions (via tokens).
 
