@@ -84,11 +84,11 @@ func CurrentTime() time.Time {
 	return time.Now().UTC()
 }
 
-// A key is considered invalid if validUntil is after now.
+// A key is considered invalid if now is after validUntil.
 // The parameter now exists s.t. you can use the same now in all queries, so
 // usually you create now once at the beginning of your function.
 func KeyInvalid(now, validUntil time.Time) bool {
-	return validUntil.After(now)
+	return now.After(validUntil)
 }
 
 func KeyValid(now, validUntil time.Time) bool {
@@ -252,7 +252,7 @@ func (c SessionController) ValidateSession(r *http.Request, store sessions.Store
 	keyVal, hasKey := session.Values[SessionKey]
 
 	if !hasKey {
-		return nil, nil, NotAuthSessionErr
+		return nil, session, NotAuthSessionErr
 	}
 
 	key, ok := keyVal.(string)
@@ -267,14 +267,18 @@ func (c SessionController) ValidateSession(r *http.Request, store sessions.Store
 	}
 
 	// now info is not allowed to be nil
-	// so we validate the entry
+	// so we validate the entry and update the max age of the session, update to
+	// the time that is still left
+
+	durationLeft := info.ValidUntil.Sub(now)
+	session.Options.MaxAge = int(durationLeft / time.Second)
+
 	if KeyInvalid(now, info.ValidUntil) {
 		return nil, session, InvalidKeyErr
 	}
 
 	// everything is fine, so now return everything: the user should be considered
 	// as logged in
-
 	return info, session, nil
 }
 
@@ -313,6 +317,8 @@ func (c SessionController) EndSession(r *http.Request, store sessions.Store) err
 	if !ok {
 		return errors.New("Internal lookup error.")
 	}
+	// set the session age to -1
+	session.Options.MaxAge = -1
 	return c.DeleteKey(key)
 }
 

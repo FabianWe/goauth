@@ -55,7 +55,7 @@ func NewSQLSessionHandler(db *sql.DB, t SQLSessionTemplate) *SQLSessionHandler {
 	// the reflect package or something either...
 	c := SQLSessionHandler{DB: db, TableName: "user_sessions",
 		UserIDType: "BIGINT UNSIGNED NOT NULL", KeySize: DefaultKeyLength,
-		TimeFromScanType: t.TimeFromScanType, ForceUIDuint: true}
+		TimeFromScanType: t.TimeFromScanType, ForceUIDuint: false}
 	c.InitQ = fmt.Sprintf(t.InitQ(), c.TableName, c.UserIDType, c.KeySize)
 	c.GetQ = fmt.Sprintf(t.GetQ(), c.TableName)
 	c.CreateQ = fmt.Sprintf(t.CreateQ(), c.TableName)
@@ -63,6 +63,11 @@ func NewSQLSessionHandler(db *sql.DB, t SQLSessionTemplate) *SQLSessionHandler {
 	c.DeleteInvalidQ = fmt.Sprintf(t.DeleteInvalidQ(), c.TableName)
 	c.DeleteKeyQ = fmt.Sprintf(t.DeleteKeyQ(), c.TableName)
 	return &c
+}
+
+func NewMySQLController(db *sql.DB) *SessionController {
+	handler := NewSQLSessionHandler(db, NewMySQLTemplate())
+	return NewSessionController(handler)
 }
 
 func (c *SQLSessionHandler) Init() error {
@@ -190,5 +195,116 @@ func (t MySQLTemplate) TimeFromScanType(val interface{}) (time.Time, error) {
 	} else {
 		// we have to return some time... why not now.
 		return time.Now().UTC(), errors.New("Invalid date in database, probably a bug if you end up here.")
+	}
+}
+
+// USERS stuff
+
+type SQLUserQueries struct {
+	PwLength      int
+	InitQuery     string
+	InsertQuery   string
+	ValidateQuery string
+}
+
+func MySQLUserQueries(pwLength int) *SQLUserQueries {
+	initQ := `
+	CREATE TABLE IF NOT EXISTS users (
+		id SERIAL,
+		username VARCHAR(150) NOT NULL,
+		first_name VARCHAR(30) NOT NULL,
+		last_name VARCHAR(30) NOT NULL,
+		email VARCHAR(254),
+		password CHAR(%d),
+		is_active BOOL,
+		last_login DATETIME,
+		PRIMARY KEY(id),
+		UNIQUE(username)
+	);
+	`
+	initQ = fmt.Sprintf(initQ, pwLength)
+	insertQ := `
+	INSERT INTO users (username, first_name, last_name, email, password, is_active, last_login)
+		VALUES(?, ?, ?, ?, ?, ?, ?);
+	`
+	validateQ := "SELECT id, password FROM users WHERE username = ?"
+	return &SQLUserQueries{PwLength: pwLength, InitQuery: initQ,
+		InsertQuery: insertQ, ValidateQuery: validateQ}
+}
+
+type SQLUserHandler struct {
+	*SQLUserQueries
+	DB        *sql.DB
+	PwHandler PasswordHandler
+}
+
+func NewSQLUserHandler(queries *SQLUserQueries, db *sql.DB, pwHandler PasswordHandler) *SQLUserHandler {
+	if pwHandler == nil {
+		pwHandler = NewBcryptHandler(-1)
+	}
+	return &SQLUserHandler{SQLUserQueries: queries, DB: db, PwHandler: pwHandler}
+}
+
+func NewMySQLUserHandler(db *sql.DB, pwHandler PasswordHandler) *SQLUserHandler {
+	if pwHandler == nil {
+		pwHandler = NewBcryptHandler(-1)
+	}
+	return NewSQLUserHandler(MySQLUserQueries(pwHandler.PasswordHashLength()),
+		db, pwHandler)
+}
+
+func (handler *SQLUserHandler) Init() error {
+	_, err := handler.DB.Exec(handler.InitQuery)
+	return err
+}
+
+func (handler *SQLUserHandler) Insert(userName, firstName, lastName, email string, plainPW []byte) (uint64, error) {
+	now := CurrentTime()
+	// try to encrypt the pw
+	encrypted, encErr := handler.PwHandler.GenerateHash(plainPW)
+	if encErr != nil {
+		return NoUserID, encErr
+	}
+
+	res, err := handler.DB.Exec(handler.InsertQuery, userName, firstName, lastName, email, encrypted, true, now)
+	if err != nil {
+		return NoUserID, err
+	}
+
+	// insert worked, try to get the last insert id
+	insertInt, getErr := res.LastInsertId()
+	if getErr != nil {
+		return NoUserID, nil
+	}
+	// Don't know if this is even possible, but ok
+	if insertInt < 0 {
+		return NoUserID, nil
+	}
+	// everything ok, we convert to uint64
+	var insertId uint64 = uint64(insertInt)
+	return insertId, nil
+}
+
+func (handler *SQLUserHandler) Validate(userName string, cleartextPwCheck []byte) (uint64, error) {
+	// first try to get the id and the password
+	row := handler.DB.QueryRow(handler.ValidateQuery, userName)
+	var userId uint64
+	var hashPw []byte
+	if err := row.Scan(&userId, &hashPw); err != nil {
+		if err == sql.ErrNoRows {
+			return NoUserID, ErrUserNotFound
+		}
+		return NoUserID, err
+	}
+	// validate the password
+	test, err := handler.PwHandler.CheckPassword(hashPw, cleartextPwCheck)
+	if err != nil {
+		return NoUserID, err
+	}
+	// no error, check if passwords did match
+	if test {
+		return userId, nil
+	} else {
+		return NoUserID, nil
 	}
 }
