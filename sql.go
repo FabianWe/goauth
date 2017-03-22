@@ -210,7 +210,7 @@ func (t MySQLSessionTemplate) DeleteForUserQ() string {
 }
 
 func (t MySQLSessionTemplate) DeleteInvalidQ() string {
-	return "DELETE FROM %s WHERE valid_until > ?;"
+	return "DELETE FROM %s WHERE ? > valid_until;"
 }
 
 func (t MySQLSessionTemplate) DeleteKeyQ() string {
@@ -258,6 +258,64 @@ func NewSQLite3SessionController(db *sql.DB, tableName, userIDType string) *Sess
 	return NewSessionController(handler)
 }
 
+type PostgreSessionTemplate struct{}
+
+func NewPostgreSessionTemplate() PostgreSessionTemplate {
+	return PostgreSessionTemplate{}
+}
+
+func (t PostgreSessionTemplate) InitQ() string {
+	return `CREATE TABLE IF NOT EXISTS %s (
+		user_id %s,
+		session_key CHAR(%d) NOT NULL,
+    created TIMESTAMP NOT NULL,
+    valid_until TIMESTAMP NOT NULL,
+		PRIMARY KEY (session_key)
+	);`
+}
+
+func (t PostgreSessionTemplate) GetQ() string {
+	return "SELECT user_id, created, valid_until FROM %s WHERE session_key = $1;"
+}
+
+func (t PostgreSessionTemplate) CreateQ() string {
+	return "INSERT INTO %s (user_id, session_key, created, valid_until) VALUES ($1, $2, $3, $4);"
+}
+
+func (t PostgreSessionTemplate) DeleteForUserQ() string {
+	return "DELETE FROM %s WHERE user_id = $1;"
+}
+
+func (t PostgreSessionTemplate) DeleteInvalidQ() string {
+	return "DELETE FROM %s WHERE $1 > valid_until;"
+}
+
+func (t PostgreSessionTemplate) DeleteKeyQ() string {
+	return "DELETE FROM %s WHERE session_key = $1"
+}
+
+func (t PostgreSessionTemplate) TimeFromScanType(val interface{}) (time.Time, error) {
+	// first check if we already got a time.Time because parseTime in
+	// the MySQL driver is true
+	if alreadyTime, ok := val.(time.Time); ok {
+		return alreadyTime, nil
+	}
+	if bytes, ok := val.([]byte); ok {
+		s := string(bytes)
+		// let's hope this is correct... however who came up with THIS parse
+		// function definition in Go?!
+		return time.Parse("2006-01-02 15:04:05", s)
+	} else {
+		// we have to return some time... why not now.
+		return time.Now().UTC(), errors.New("Invalid date in database, probably a bug if you end up here.")
+	}
+}
+
+func NewPostgreSessionController(db *sql.DB, tableName, userIDType string) *SessionController {
+	handler := NewSQLSessionHandler(db, NewPostgreSessionTemplate(), tableName, userIDType, true)
+	return NewSessionController(handler)
+}
+
 // USERS stuff
 
 type SQLUserQueries struct {
@@ -288,6 +346,30 @@ func MySQLUserQueries(pwLength int) *SQLUserQueries {
 		VALUES(?, ?, ?, ?, ?, ?, ?);
 	`
 	validateQ := "SELECT id, password FROM users WHERE username = ?"
+	return &SQLUserQueries{PwLength: pwLength, InitQuery: initQ,
+		InsertQuery: insertQ, ValidateQuery: validateQ}
+}
+
+func PostgresUserQueries(pwLength int) *SQLUserQueries {
+	initQ := `
+	CREATE TABLE IF NOT EXISTS users (
+		id bigserial,
+		username varchar(150) NOT NULL,
+		first_name varchar(30) NOT NULL,
+		last_name varchar(30) NOT NULL,
+		email varchar(254),
+		password char(%d),
+		is_active bool NOT NULL,
+		last_login timestamp NOT NULL,
+		unique (username)
+	);
+	`
+	initQ = fmt.Sprintf(initQ, pwLength)
+	insertQ := `
+	INSERT INTO users (username, first_name, last_name, email, password, is_active, last_login)
+		VALUES ($1, $2, $3, $4, $5, $6, $7);
+	`
+	validateQ := "SELECT id, password FROM users WHERE username = $1"
 	return &SQLUserQueries{PwLength: pwLength, InitQuery: initQ,
 		InsertQuery: insertQ, ValidateQuery: validateQ}
 }
@@ -343,6 +425,14 @@ func NewSQLite3UserHandler(db *sql.DB, pwHandler PasswordHandler) *SQLUserHandle
 	}
 	return NewSQLUserHandler(SQLite3UserQueries(pwHandler.PasswordHashLength()),
 		db, pwHandler, true)
+}
+
+func NewPostgresUserHandler(db *sql.DB, pwHandler PasswordHandler) *SQLUserHandler {
+	if pwHandler == nil {
+		pwHandler = NewBcryptHandler(-1)
+	}
+	return NewSQLUserHandler(PostgresUserQueries(pwHandler.PasswordHashLength()),
+		db, pwHandler, false)
 }
 
 func (handler *SQLUserHandler) Init() error {
