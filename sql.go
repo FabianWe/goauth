@@ -232,6 +232,27 @@ func MySQLUserQueries(pwLength int) *SQLUserQueries {
 		InsertQuery: insertQ, ValidateQuery: validateQ}
 }
 
+func SQLite3UserQueries(pwLength int) *SQLUserQueries {
+	// nearly everything is the same as for mysql
+	res := MySQLUserQueries(pwLength)
+	initQ := `
+	CREATE TABLE IF NOT EXISTS users (
+		id INTEGER PRIMARY KEY,
+		username VARCHAR(150) NOT NULL,
+		first_name VARCHAR(30) NOT NULL,
+		last_name VARCHAR(30) NOT NULL,
+		email VARCHAR(254),
+		password CHAR(%d),
+		is_active BOOL,
+		last_login DATETIME,
+		UNIQUE(username)
+	);
+	`
+	initQ = fmt.Sprintf(initQ, pwLength)
+	res.InitQuery = initQ
+	return res
+}
+
 type SQLUserHandler struct {
 	*SQLUserQueries
 	DB        *sql.DB
@@ -250,6 +271,14 @@ func NewMySQLUserHandler(db *sql.DB, pwHandler PasswordHandler) *SQLUserHandler 
 		pwHandler = NewBcryptHandler(-1)
 	}
 	return NewSQLUserHandler(MySQLUserQueries(pwHandler.PasswordHashLength()),
+		db, pwHandler)
+}
+
+func NewSQLite3UserHandler(db *sql.DB, pwHandler PasswordHandler) *SQLUserHandler {
+	if pwHandler == nil {
+		pwHandler = NewBcryptHandler(-1)
+	}
+	return NewSQLUserHandler(SQLite3UserQueries(pwHandler.PasswordHashLength()),
 		db, pwHandler)
 }
 
