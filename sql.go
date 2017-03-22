@@ -26,6 +26,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -48,34 +49,53 @@ type SQLSessionHandler struct {
 	KeySize                                                          int
 	TimeFromScanType                                                 func(val interface{}) (time.Time, error)
 	ForceUIDuint                                                     bool
+	// this is required for example for sqlite, it does not support
+	// multiple goroutines when writing!
+	// I hope this does not slow us down too much...
+	mutex   sync.RWMutex
+	blockDB bool
 }
 
-func NewSQLSessionHandler(db *sql.DB, t SQLSessionTemplate) *SQLSessionHandler {
+func NewSQLSessionHandler(db *sql.DB, t SQLSessionTemplate, tableName, userIDType string, lockDB bool) *SQLSessionHandler {
+	if tableName == "" {
+		tableName = "user_sessions"
+	}
+	if userIDType == "" {
+		userIDType = "BIGINT UNSIGNED NOT NULL"
+	}
 	// I'm not so happy with this many lines of code, but I don't want to use
 	// the reflect package or something either...
-	c := SQLSessionHandler{DB: db, TableName: "user_sessions",
-		UserIDType: "BIGINT UNSIGNED NOT NULL", KeySize: DefaultKeyLength,
-		TimeFromScanType: t.TimeFromScanType, ForceUIDuint: false}
-	c.InitQ = fmt.Sprintf(t.InitQ(), c.TableName, c.UserIDType, c.KeySize)
-	c.GetQ = fmt.Sprintf(t.GetQ(), c.TableName)
-	c.CreateQ = fmt.Sprintf(t.CreateQ(), c.TableName)
-	c.DeleteForUserQ = fmt.Sprintf(t.DeleteForUserQ(), c.TableName)
-	c.DeleteInvalidQ = fmt.Sprintf(t.DeleteInvalidQ(), c.TableName)
-	c.DeleteKeyQ = fmt.Sprintf(t.DeleteKeyQ(), c.TableName)
-	return &c
+	h := SQLSessionHandler{DB: db, TableName: tableName,
+		UserIDType: userIDType, KeySize: DefaultKeyLength,
+		TimeFromScanType: t.TimeFromScanType, ForceUIDuint: false, blockDB: lockDB}
+	h.InitQ = fmt.Sprintf(t.InitQ(), h.TableName, h.UserIDType, h.KeySize)
+	h.GetQ = fmt.Sprintf(t.GetQ(), h.TableName)
+	h.CreateQ = fmt.Sprintf(t.CreateQ(), h.TableName)
+	h.DeleteForUserQ = fmt.Sprintf(t.DeleteForUserQ(), h.TableName)
+	h.DeleteInvalidQ = fmt.Sprintf(t.DeleteInvalidQ(), h.TableName)
+	h.DeleteKeyQ = fmt.Sprintf(t.DeleteKeyQ(), h.TableName)
+	return &h
 }
 
-func NewMySQLController(db *sql.DB) *SessionController {
-	handler := NewSQLSessionHandler(db, NewMySQLTemplate())
+func NewMySQLController(db *sql.DB, tableName, userIDType string) *SessionController {
+	handler := NewSQLSessionHandler(db, NewMySQLSessionTemplate(), tableName, userIDType, false)
 	return NewSessionController(handler)
 }
 
 func (c *SQLSessionHandler) Init() error {
+	if c.blockDB {
+		c.mutex.Lock()
+		defer c.mutex.Unlock()
+	}
 	_, err := c.DB.Exec(c.InitQ)
 	return err
 }
 
 func (c *SQLSessionHandler) GetData(key string) (*SessionKeyData, error) {
+	if c.blockDB {
+		c.mutex.RLock()
+		defer c.mutex.RUnlock()
+	}
 	var uid, createdVal, validUntilVal interface{}
 	var err error
 	row := c.DB.QueryRow(c.GetQ, key)
@@ -106,6 +126,10 @@ func (c *SQLSessionHandler) GetData(key string) (*SessionKeyData, error) {
 }
 
 func (c *SQLSessionHandler) CreateEntry(user UserKeyType, key string, validDuration time.Duration) (*SessionKeyData, error) {
+	if c.blockDB {
+		c.mutex.Lock()
+		defer c.mutex.Unlock()
+	}
 	data := CurrentTimeKeyData(user, validDuration)
 	_, err := c.DB.Exec(c.CreateQ, user, key, data.CreationTime, data.ValidUntil)
 	if err != nil {
@@ -115,6 +139,10 @@ func (c *SQLSessionHandler) CreateEntry(user UserKeyType, key string, validDurat
 }
 
 func (c *SQLSessionHandler) DeleteEntriesForUser(user UserKeyType) (int64, error) {
+	if c.blockDB {
+		c.mutex.Lock()
+		defer c.mutex.Unlock()
+	}
 	res, err := c.DB.Exec(c.DeleteForUserQ, user)
 	if err != nil {
 		return -1, err
@@ -128,6 +156,10 @@ func (c *SQLSessionHandler) DeleteEntriesForUser(user UserKeyType) (int64, error
 
 func (c *SQLSessionHandler) DeleteInvalidKeys() (int64, error) {
 	now := CurrentTime()
+	if c.blockDB {
+		c.mutex.Lock()
+		defer c.mutex.Unlock()
+	}
 	res, err := c.DB.Exec(c.DeleteInvalidQ, now)
 	if err != nil {
 		return -1, err
@@ -140,48 +172,52 @@ func (c *SQLSessionHandler) DeleteInvalidKeys() (int64, error) {
 }
 
 func (c *SQLSessionHandler) DeleteKey(key string) error {
+	if c.blockDB {
+		c.mutex.Lock()
+		defer c.mutex.Unlock()
+	}
 	_, err := c.DB.Exec(c.DeleteKeyQ, key)
 	return err
 }
 
-type MySQLTemplate struct {
+type MySQLSessionTemplate struct {
 }
 
-func NewMySQLTemplate() MySQLTemplate {
-	return MySQLTemplate{}
+func NewMySQLSessionTemplate() MySQLSessionTemplate {
+	return MySQLSessionTemplate{}
 }
 
-func (t MySQLTemplate) InitQ() string {
+func (t MySQLSessionTemplate) InitQ() string {
 	return `CREATE TABLE IF NOT EXISTS %s (
 		user_id %s,
-		session_key CHAR(%d),
+		session_key CHAR(%d) NOT NULL,
     created DATETIME NOT NULL,
     valid_until DATETIME NOT NULL,
 		PRIMARY KEY (session_key)
 	);`
 }
 
-func (t MySQLTemplate) GetQ() string {
+func (t MySQLSessionTemplate) GetQ() string {
 	return "SELECT user_id, created, valid_until FROM %s WHERE session_key = ?;"
 }
 
-func (t MySQLTemplate) CreateQ() string {
+func (t MySQLSessionTemplate) CreateQ() string {
 	return "INSERT INTO %s (user_id, session_key, created, valid_until) VALUES (?, ?, ?, ?);"
 }
 
-func (t MySQLTemplate) DeleteForUserQ() string {
+func (t MySQLSessionTemplate) DeleteForUserQ() string {
 	return "DELETE FROM %s WHERE user_id = ?;"
 }
 
-func (t MySQLTemplate) DeleteInvalidQ() string {
+func (t MySQLSessionTemplate) DeleteInvalidQ() string {
 	return "DELETE FROM %s WHERE valid_until > ?;"
 }
 
-func (t MySQLTemplate) DeleteKeyQ() string {
+func (t MySQLSessionTemplate) DeleteKeyQ() string {
 	return "DELETE FROM %s WHERE session_key = ?"
 }
 
-func (t MySQLTemplate) TimeFromScanType(val interface{}) (time.Time, error) {
+func (t MySQLSessionTemplate) TimeFromScanType(val interface{}) (time.Time, error) {
 	// first check if we already got a time.Time because parseTime in
 	// the MySQL driver is true
 	if alreadyTime, ok := val.(time.Time); ok {
@@ -196,6 +232,30 @@ func (t MySQLTemplate) TimeFromScanType(val interface{}) (time.Time, error) {
 		// we have to return some time... why not now.
 		return time.Now().UTC(), errors.New("Invalid date in database, probably a bug if you end up here.")
 	}
+}
+
+type SQLite3SessionTemplate struct {
+	// most of the stuff is the same as for SQL, so we can actually simply
+	// delegate it to this template and just define the new queries
+	MySQLSessionTemplate
+}
+
+func NewSQLite3SessionTemplate() *SQLite3SessionTemplate {
+	return &SQLite3SessionTemplate{MySQLSessionTemplate: NewMySQLSessionTemplate()}
+}
+
+func (*SQLite3SessionTemplate) InitQ() string {
+	return `CREATE TABLE IF NOT EXISTS %s (
+		user_id %s,
+		session_key CHAR(%d) NOT NULL PRIMARY KEY,
+    created DATETIME NOT NULL,
+    valid_until DATETIME NOT NULL
+	);`
+}
+
+func NewSQLite3SessionController(db *sql.DB, tableName, userIDType string) *SessionController {
+	handler := NewSQLSessionHandler(db, NewSQLite3SessionTemplate(), tableName, userIDType, true)
+	return NewSessionController(handler)
 }
 
 // USERS stuff
@@ -257,13 +317,16 @@ type SQLUserHandler struct {
 	*SQLUserQueries
 	DB        *sql.DB
 	PwHandler PasswordHandler
+	// required for example for sqlite
+	blockDB bool
+	mutex   sync.RWMutex
 }
 
-func NewSQLUserHandler(queries *SQLUserQueries, db *sql.DB, pwHandler PasswordHandler) *SQLUserHandler {
+func NewSQLUserHandler(queries *SQLUserQueries, db *sql.DB, pwHandler PasswordHandler, blockDB bool) *SQLUserHandler {
 	if pwHandler == nil {
 		pwHandler = NewBcryptHandler(-1)
 	}
-	return &SQLUserHandler{SQLUserQueries: queries, DB: db, PwHandler: pwHandler}
+	return &SQLUserHandler{SQLUserQueries: queries, DB: db, PwHandler: pwHandler, blockDB: blockDB}
 }
 
 func NewMySQLUserHandler(db *sql.DB, pwHandler PasswordHandler) *SQLUserHandler {
@@ -271,7 +334,7 @@ func NewMySQLUserHandler(db *sql.DB, pwHandler PasswordHandler) *SQLUserHandler 
 		pwHandler = NewBcryptHandler(-1)
 	}
 	return NewSQLUserHandler(MySQLUserQueries(pwHandler.PasswordHashLength()),
-		db, pwHandler)
+		db, pwHandler, false)
 }
 
 func NewSQLite3UserHandler(db *sql.DB, pwHandler PasswordHandler) *SQLUserHandler {
@@ -279,10 +342,14 @@ func NewSQLite3UserHandler(db *sql.DB, pwHandler PasswordHandler) *SQLUserHandle
 		pwHandler = NewBcryptHandler(-1)
 	}
 	return NewSQLUserHandler(SQLite3UserQueries(pwHandler.PasswordHashLength()),
-		db, pwHandler)
+		db, pwHandler, true)
 }
 
 func (handler *SQLUserHandler) Init() error {
+	if handler.blockDB {
+		handler.mutex.Lock()
+		defer handler.mutex.Unlock()
+	}
 	_, err := handler.DB.Exec(handler.InitQuery)
 	return err
 }
@@ -295,6 +362,10 @@ func (handler *SQLUserHandler) Insert(userName, firstName, lastName, email strin
 		return NoUserID, encErr
 	}
 
+	if handler.blockDB {
+		handler.mutex.Lock()
+		defer handler.mutex.Unlock()
+	}
 	res, err := handler.DB.Exec(handler.InsertQuery, userName, firstName, lastName, email, encrypted, true, now)
 	if err != nil {
 		return NoUserID, err
@@ -315,6 +386,10 @@ func (handler *SQLUserHandler) Insert(userName, firstName, lastName, email strin
 }
 
 func (handler *SQLUserHandler) Validate(userName string, cleartextPwCheck []byte) (uint64, error) {
+	if handler.blockDB {
+		handler.mutex.RLock()
+		defer handler.mutex.RUnlock()
+	}
 	// first try to get the id and the password
 	row := handler.DB.QueryRow(handler.ValidateQuery, userName)
 	var userId uint64
