@@ -327,18 +327,20 @@ func NewPostgreSessionController(db *sql.DB, tableName, userIDType string) *Sess
 // called "users".
 // The default scheme that should be implemented looks as
 // follows (in MySQL syntax):
-// CREATE TABLE IF NOT EXISTS users (
-// 	id SERIAL,
-// 	username VARCHAR(150) NOT NULL,
-// 	first_name VARCHAR(30) NOT NULL,
-// 	last_name VARCHAR(30) NOT NULL,
-// 	email VARCHAR(254),
-// 	password CHAR(<PWLENGTH>),
-// 	is_active BOOL,
-// 	last_login DATETIME,
-// 	PRIMARY KEY(id),
-// 	UNIQUE(username)
-// );
+//
+//   CREATE TABLE IF NOT EXISTS users (
+// 		id SERIAL,
+// 		username VARCHAR(150) NOT NULL,
+// 		first_name VARCHAR(30) NOT NULL,
+// 		last_name VARCHAR(30) NOT NULL,
+// 		email VARCHAR(254),
+// 		password CHAR(<PWLENGTH>),
+// 		is_active BOOL,
+// 		last_login DATETIME,
+// 		PRIMARY KEY(id),
+// 		UNIQUE(username)
+// 	);
+//
 // On the wiki there are more notes on how to alter this
 // scheme: https://github.com/FabianWe/goauth/wiki/Manage-Users#the-default-user-scheme
 type SQLUserQueries struct {
@@ -467,10 +469,13 @@ type SQLUserHandler struct {
 // NewSQLUserHandler returns a new SQLUserHandler given
 // the queries and all the other information required.
 // queries are the queries used to access the database.
+//
 // db is the database to execute the queries on.
+//
 // pwHandler is used to encrypt / validate passwords.
 // Set this to nil if you want to use the default handler
 // (bcrypt with cost 10).
+//
 // blockDB should be set to true if your database does not
 // support access to the database by different goroutines.
 // This is for example an issue with sqlite3.

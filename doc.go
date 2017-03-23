@@ -29,18 +29,18 @@
 // with user information. Using them directly for user login sessions is not
 // good because:
 //
-//   The client may not cope with the MaxAge and edit the cookie.
-//   In this case it will send the cookie again to the server and gorialla
-//   will accept it. At least that's what I found out, maybe I did something
-//   wrong but I just edited the lifespan of the cookie and gorilla still
-//   accepted it.
+// The client may not cope with the MaxAge and edit the cookie.
+// In this case it will send the cookie again to the server and gorialla
+// will accept it. At least that's what I found out, maybe I did something
+// wrong but I just edited the lifespan of the cookie and gorilla still
+// accepted it.
 //
-//   There is no connection between a session and a user you might have in
-//   your database. For example if you have a "log out everywhere" function
-//   four your user or the user changes his password there is no direct way to
-//   connect the gorilla session with that user and invalidate all sessions keys.
-//   Or if you delete a user: You don't want the user be able to still login
-//   with already delivered keys.
+// There is no connection between a session and a user you might have in
+// your database. For example if you have a "log out everywhere" function
+// four your user or the user changes his password there is no direct way to
+// connect the gorilla session with that user and invalidate all sessions keys.
+// Or if you delete a user: You don't want the user be able to still login
+// with already delivered keys.
 //
 // This package provides a lot of interfaces to connect gorilla sessions with
 // user information. It also provides implementations for these interface
