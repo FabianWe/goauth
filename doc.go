@@ -37,14 +37,16 @@
 //
 //   There is no connection between a session and a user you might have in
 //   your database. For example if you have a "log out everywhere" function
-//   four your user there is no direct way to connect the gorilla session
-//   with that user and invalidate all sessions keys.
+//   four your user or the user changes his password there is no direct way to
+//   connect the gorilla session with that user and invalidate all sessions keys.
 //   Or if you delete a user: You don't want the user be able to still login
 //   with already delivered keys.
 //
 // This package provides a lot of interfaces to connect gorilla sessions with
 // user information. It also provides implementations for these interface
-// for MySQL and sqlite database. PostgreSQL is intended to work as well.
+// for MySQL, postgres and sqlite databases.
 //
 // See the github page for more details: https://github.com/FabianWe/goauth
+// and the wiki for some more explanation and small examples:
+// https://github.com/FabianWe/goauth/wiki
 package goauth

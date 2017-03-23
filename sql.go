@@ -318,13 +318,63 @@ func NewPostgreSessionController(db *sql.DB, tableName, userIDType string) *Sess
 
 // USERS stuff
 
+// SQLUserQueries stores several queries for working
+// with users on SQL databases.
+// These queries can be different for different SQL flavours
+// and thus there different methods that create such
+// an object, for example MySQLUserQueries.
+// In general there is one database for all user information
+// called "users".
+// The default scheme that should be implemented looks as
+// follows (in MySQL syntax):
+// CREATE TABLE IF NOT EXISTS users (
+// 	id SERIAL,
+// 	username VARCHAR(150) NOT NULL,
+// 	first_name VARCHAR(30) NOT NULL,
+// 	last_name VARCHAR(30) NOT NULL,
+// 	email VARCHAR(254),
+// 	password CHAR(<PWLENGTH>),
+// 	is_active BOOL,
+// 	last_login DATETIME,
+// 	PRIMARY KEY(id),
+// 	UNIQUE(username)
+// );
+// On the wiki there are more notes on how to alter this
+// scheme: https://github.com/FabianWe/goauth/wiki/Manage-Users#the-default-user-scheme
 type SQLUserQueries struct {
-	PwLength      int
-	InitQuery     string
-	InsertQuery   string
+	// PwLength is the length of the database hashes stored in
+	// the database, needed to initialize the database with the
+	// correct length.
+	PwLength int
+
+	// InitQuery is the query to generate the "users" table.
+	// It should take care take when executing this command
+	// no error is returned if the table already exists.
+	// It should take care to adjust the length of the password
+	// field to the PwLength.
+	InitQuery string
+
+	// InsertQuery is a query to insert a user to the default
+	// scheme.
+	// It must use placeholders (? in MySQL, $i in postgre)
+	// for the information that will be stored.
+	// The values are passed in the following order:
+	// username, first_name, last_name, email, password, is_active, last_login
+	// username, first_name, last_name, email are of type string,
+	// password is of type []byte, is_active of type bool
+	// and last_login of type time.Time.
+	InsertQuery string
+
+	// ValidateQuery must be a query that selects exactly
+	// two values: the id and the password column given
+	// the username.
+	// You must use one placeholder that gets replaced by the
+	// username. Example in MySQL:
+	// "SELECT id, password FROM users WHERE username = ?"
 	ValidateQuery string
 }
 
+// MySQLUserQueries provides queries to use with MySQL.
 func MySQLUserQueries(pwLength int) *SQLUserQueries {
 	initQ := `
 	CREATE TABLE IF NOT EXISTS users (
@@ -350,6 +400,7 @@ func MySQLUserQueries(pwLength int) *SQLUserQueries {
 		InsertQuery: insertQ, ValidateQuery: validateQ}
 }
 
+// PostgresUserQueries provides queries to use with postgres.
 func PostgresUserQueries(pwLength int) *SQLUserQueries {
 	initQ := `
 	CREATE TABLE IF NOT EXISTS users (
@@ -374,6 +425,7 @@ func PostgresUserQueries(pwLength int) *SQLUserQueries {
 		InsertQuery: insertQ, ValidateQuery: validateQ}
 }
 
+// SQLite3UserQueries provides queries to use with sqlite3.
 func SQLite3UserQueries(pwLength int) *SQLUserQueries {
 	// nearly everything is the same as for mysql
 	res := MySQLUserQueries(pwLength)
@@ -395,15 +447,40 @@ func SQLite3UserQueries(pwLength int) *SQLUserQueries {
 	return res
 }
 
+// SQLUserHandler implements the UserHandler by executing
+// queries as defined in an instance of SQLUserQueries.
 type SQLUserHandler struct {
+	// SQLUserQueries are the queries used to access the database.
 	*SQLUserQueries
-	DB        *sql.DB
+
+	// DB is the database to execute the queries on.
+	DB *sql.DB
+
+	// PwHandler is used to encrypt / validate passwords.
 	PwHandler PasswordHandler
+
 	// required for example for sqlite
 	blockDB bool
 	mutex   sync.RWMutex
 }
 
+// NewSQLUserHandler returns a new SQLUserHandler given
+// the queries and all the other information required.
+// queries are the queries used to access the database.
+// db is the database to execute the queries on.
+// pwHandler is used to encrypt / validate passwords.
+// Set this to nil if you want to use the default handler
+// (bcrypt with cost 10).
+// blockDB should be set to true if your database does not
+// support access to the database by different goroutines.
+// This is for example an issue with sqlite3.
+// I'm not very happy to have it here since I think that's
+// the job of the database driver, but we need it until
+// there's a safe implementation of sqlite3.
+// If it is set to true access to the database will be
+// controlled with a mutex.
+// For MySQL and postgres there is no need for this, the
+// drivers handle this.
 func NewSQLUserHandler(queries *SQLUserQueries, db *sql.DB, pwHandler PasswordHandler, blockDB bool) *SQLUserHandler {
 	if pwHandler == nil {
 		pwHandler = NewBcryptHandler(-1)
@@ -411,6 +488,7 @@ func NewSQLUserHandler(queries *SQLUserQueries, db *sql.DB, pwHandler PasswordHa
 	return &SQLUserHandler{SQLUserQueries: queries, DB: db, PwHandler: pwHandler, blockDB: blockDB}
 }
 
+// NewMySQLUserHandler returns a new handler that uses MySQL.
 func NewMySQLUserHandler(db *sql.DB, pwHandler PasswordHandler) *SQLUserHandler {
 	if pwHandler == nil {
 		pwHandler = NewBcryptHandler(-1)
@@ -419,6 +497,8 @@ func NewMySQLUserHandler(db *sql.DB, pwHandler PasswordHandler) *SQLUserHandler 
 		db, pwHandler, false)
 }
 
+// NewSQLite3UserHandler returns a new handler that uses
+// sqlite3. Note that sqlite3 is really slow with this stuff!
 func NewSQLite3UserHandler(db *sql.DB, pwHandler PasswordHandler) *SQLUserHandler {
 	if pwHandler == nil {
 		pwHandler = NewBcryptHandler(-1)
@@ -427,6 +507,8 @@ func NewSQLite3UserHandler(db *sql.DB, pwHandler PasswordHandler) *SQLUserHandle
 		db, pwHandler, true)
 }
 
+// NewPostgresUserHandler returns a new handler that uses
+// postgres.
 func NewPostgresUserHandler(db *sql.DB, pwHandler PasswordHandler) *SQLUserHandler {
 	if pwHandler == nil {
 		pwHandler = NewBcryptHandler(-1)

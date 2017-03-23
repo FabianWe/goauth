@@ -30,10 +30,12 @@ import (
 )
 
 /*
-PasswordHandler is an interface that knows two methods:
+PasswordHandler is an interface that knows three methods:
 Create a hash from a given (plaintext) password
 Compare a previously by this method generated hash and compare it to
-another password.
+plaintext password.
+A function PasswordHashLength that returns the length of the
+password hashes.
 There is an implementation BcryptHandler, so you don't have to write one
 on your own, but you could!
 */
@@ -47,8 +49,9 @@ type PasswordHandler interface {
 	CheckPassword(hashedPW, password []byte) (bool, error)
 
 	// PasswordHashLength returns the length of the password hash.
-	// The hashes should be of the same length in any used scheme, so this method
-	// must return of the elements created with GenerateHash.
+	// The hashes must be of the same length, so this method
+	// must return the length of the elements created with
+	// GenerateHash.
 	// For bcrypt the length is 60.
 	PasswordHashLength() int
 }
@@ -100,16 +103,50 @@ func (handler *BcryptHandler) CheckPassword(hashedPW, password []byte) (bool, er
 	return false, err
 }
 
+// PasswordHashLength returns the default length for bcrypt,
+// that is 60.
 func (handler *BcryptHandler) PasswordHashLength() int {
 	return DefaultPWLength
 }
 
+// NoUserID is an user id that is returned if the user was
+// not found or some error occurred.
 const NoUserID = math.MaxUint64
 
+// ErrUserNotFound is an error that is used in the Validate
+// function to signal that the user with the given username
+// was not found.
 var ErrUserNotFound = errors.New("Username not found")
 
+// UserHandler is an interface to deal with the management of
+// users.
 type UserHandler interface {
+	// Init initializes the underlying storage.
+	// Use this function every time you start your app, this
+	// function must take sure that no error is produced if
+	// invoked several times.
+	// In SQL for example "CREATE TABLE IF NOT EXISTS"
 	Init() error
+
+	// Insert inserts a new user into the default scheme.
+	// This function must return NoUserID and an error != nil
+	// if any error occurred.
+	// If the insert took place it always returns an error == nil.
+	// However it can return nil as an error and NoUserID, in this case the
+	// database doesn't support an immediate lookup for the newly inserted id
+	// (sqlite3 and MySQL seem to support this though, postgre not).
+	// Note that an error is also raised if the username is already in use
+	// (must be unique).
 	Insert(userName, firstName, lastName, email string, plainPW []byte) (uint64, error)
+
+	// Validate validates the given plaintext password with the hashed password
+	// of the user in the storage.
+	// If err != nil you should always consider the lookup as a failure.
+	// The function returns NoUserID and ErrUserNotFound if the user was not
+	// found.
+	// If no error occurred you can check if the login was successful by checking
+	// the returned user id:
+	// On failure it returns NoUserID and on success the id of the user with
+	// username.
 	Validate(userName string, CleartextPwCheck []byte) (uint64, error)
 }
