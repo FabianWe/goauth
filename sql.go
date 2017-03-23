@@ -315,7 +315,7 @@ func NewPostgresSessionController(db *sql.DB, tableName, userIDType string) *Ses
 	if userIDType == "" {
 		userIDType = "BIGINT NOT NULL"
 	}
-	handler := NewSQLSessionHandler(db, NewPostgresSessionTemplate(), tableName, userIDType, true)
+	handler := NewSQLSessionHandler(db, NewPostgresSessionTemplate(), tableName, userIDType, false)
 	return NewSessionController(handler)
 }
 
