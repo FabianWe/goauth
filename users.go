@@ -56,12 +56,18 @@ type PasswordHandler interface {
 	PasswordHashLength() int
 }
 
-// DefaultCost is the default cost parameter for bcrypt.
-const DefaultCost = 10
+const (
+	// DefaultCost is the default cost parameter for bcrypt.
+	DefaultCost = 10
 
-// DefaultPWLength is he default length of encrypted passwords.
-// This is 60 for bcrypt.
-const DefaultPWLength = 60
+	// DefaultPWLength is he default length of encrypted passwords.
+	// This is 60 for bcrypt.
+	DefaultPWLength = 60
+
+	// NoUserID is an user id that is returned if the user was
+	// not found or some error occurred.
+	NoUserID = math.MaxUint64
+)
 
 // BcryptHandler is a PasswordHandler that uses bcrypt.
 type BcryptHandler struct {
@@ -109,14 +115,10 @@ func (handler *BcryptHandler) PasswordHashLength() int {
 	return DefaultPWLength
 }
 
-// NoUserID is an user id that is returned if the user was
-// not found or some error occurred.
-const NoUserID = math.MaxUint64
-
 // ErrUserNotFound is an error that is used in the Validate
 // function to signal that the user with the given username
 // was not found.
-var ErrUserNotFound = errors.New("Username not found")
+var ErrUserNotFound = errors.New("Username not found.")
 
 // UserHandler is an interface to deal with the management of
 // users.
