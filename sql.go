@@ -77,7 +77,7 @@ func NewSQLSessionHandler(db *sql.DB, t SQLSessionTemplate, tableName, userIDTyp
 	return &h
 }
 
-func NewMySQLController(db *sql.DB, tableName, userIDType string) *SessionController {
+func NewMySQLSessionController(db *sql.DB, tableName, userIDType string) *SessionController {
 	handler := NewSQLSessionHandler(db, NewMySQLSessionTemplate(), tableName, userIDType, false)
 	return NewSessionController(handler)
 }
@@ -108,7 +108,7 @@ func (c *SQLSessionHandler) GetData(key string) (*SessionKeyData, error) {
 	}
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, KeyNotFoundErr
+			return nil, ErrKeyNotFound
 		}
 		return nil, err
 	}
@@ -258,13 +258,13 @@ func NewSQLite3SessionController(db *sql.DB, tableName, userIDType string) *Sess
 	return NewSessionController(handler)
 }
 
-type PostgreSessionTemplate struct{}
+type PostgresSessionTemplate struct{}
 
-func NewPostgreSessionTemplate() PostgreSessionTemplate {
-	return PostgreSessionTemplate{}
+func NewPostgresSessionTemplate() PostgresSessionTemplate {
+	return PostgresSessionTemplate{}
 }
 
-func (t PostgreSessionTemplate) InitQ() string {
+func (t PostgresSessionTemplate) InitQ() string {
 	return `CREATE TABLE IF NOT EXISTS %s (
 		user_id %s,
 		session_key CHAR(%d) NOT NULL,
@@ -274,27 +274,27 @@ func (t PostgreSessionTemplate) InitQ() string {
 	);`
 }
 
-func (t PostgreSessionTemplate) GetQ() string {
+func (t PostgresSessionTemplate) GetQ() string {
 	return "SELECT user_id, created, valid_until FROM %s WHERE session_key = $1;"
 }
 
-func (t PostgreSessionTemplate) CreateQ() string {
+func (t PostgresSessionTemplate) CreateQ() string {
 	return "INSERT INTO %s (user_id, session_key, created, valid_until) VALUES ($1, $2, $3, $4);"
 }
 
-func (t PostgreSessionTemplate) DeleteForUserQ() string {
+func (t PostgresSessionTemplate) DeleteForUserQ() string {
 	return "DELETE FROM %s WHERE user_id = $1;"
 }
 
-func (t PostgreSessionTemplate) DeleteInvalidQ() string {
+func (t PostgresSessionTemplate) DeleteInvalidQ() string {
 	return "DELETE FROM %s WHERE $1 > valid_until;"
 }
 
-func (t PostgreSessionTemplate) DeleteKeyQ() string {
+func (t PostgresSessionTemplate) DeleteKeyQ() string {
 	return "DELETE FROM %s WHERE session_key = $1"
 }
 
-func (t PostgreSessionTemplate) TimeFromScanType(val interface{}) (time.Time, error) {
+func (t PostgresSessionTemplate) TimeFromScanType(val interface{}) (time.Time, error) {
 	// first check if we already got a time.Time because parseTime in
 	// the MySQL driver is true
 	if alreadyTime, ok := val.(time.Time); ok {
@@ -311,8 +311,11 @@ func (t PostgreSessionTemplate) TimeFromScanType(val interface{}) (time.Time, er
 	}
 }
 
-func NewPostgreSessionController(db *sql.DB, tableName, userIDType string) *SessionController {
-	handler := NewSQLSessionHandler(db, NewPostgreSessionTemplate(), tableName, userIDType, true)
+func NewPostgresSessionController(db *sql.DB, tableName, userIDType string) *SessionController {
+	if userIDType == "" {
+		userIDType = "BIGINT NOT NULL"
+	}
+	handler := NewSQLSessionHandler(db, NewPostgresSessionTemplate(), tableName, userIDType, true)
 	return NewSessionController(handler)
 }
 

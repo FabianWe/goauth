@@ -44,7 +44,7 @@ import (
 // "Basic" types such as int, string, ... work fine.
 type UserKeyType interface{}
 
-var KeyNotFoundErr = errors.New("No entry for key was found")
+var ErrKeyNotFound = errors.New("No entry for key was found")
 
 const (
 	// The default length for random bytes array, this creates random base64
@@ -187,7 +187,7 @@ func NewSessionController(h SessionHandler) *SessionController {
 
 // AddKey adds a new entry to the storage.
 // This function returns either "" and an error or an created key and nil.
-func (c SessionController) AddKey(user UserKeyType, validDuration time.Duration) (*SessionKeyData, string, error) {
+func (c *SessionController) AddKey(user UserKeyType, validDuration time.Duration) (*SessionKeyData, string, error) {
 	key, genErr := GenRandomBase64(c.NumBytes)
 	if genErr != nil {
 		return nil, "", genErr
@@ -206,8 +206,8 @@ const (
 	SessionKey = "key"
 )
 
-var InvalidKeyErr = errors.New("The key is not valid any more.")
-var NotAuthSessionErr = errors.New("The session is not a valid auth session.")
+var ErrInvalidKey = errors.New("The key is not valid any more.")
+var ErrNotAuthSession = errors.New("The session is not a valid auth session.")
 
 // ValidateSession validates the key that is stored in the session.
 // This function will try to get a session that is called SessionName (so
@@ -215,7 +215,7 @@ var NotAuthSessionErr = errors.New("The session is not a valid auth session.")
 // the session it returns nil, nil and the error.
 // If the found session does not have the required SessionKey value (the one
 // we store the key that connects the gorilla session to our storage)
-// this function returns nil, the session, and NotAuthSession.
+// this function returns nil, the session, and ErrNotAuthSession.
 // If there is a user auth key stored in the session it will lookup
 // the key in the underlying storage. It then returns nil, the session and
 // KeyNotFoundErr if the key was not found in the storage (for example the key
@@ -233,14 +233,14 @@ var NotAuthSessionErr = errors.New("The session is not a valid auth session.")
 //   If it returns nil as for the SessionKeyData something went wrong:
 //   (1) Something was wrong with the store (2) err == NotAuthSessionErr no
 //   authentication information was found, so probably the user has to log in
-//   and the created new sessionn (3) err == KeyNotFoundErr auth information was
+//   and create a new sessionn (3) err == KeyNotFoundErr auth information was
 //   provided, but the key was not found, so either someone tried a random key
 //   or the session of the user simply expired and was therefore deleted from
 //   storage (4) err == InvalidKeyErr the key was still found in the database
 //   but is not valid any more, so probably the user hast to login again.
 //
 // See examples for how to use this method.
-func (c SessionController) ValidateSession(r *http.Request, store sessions.Store) (*SessionKeyData, *sessions.Session, error) {
+func (c *SessionController) ValidateSession(r *http.Request, store sessions.Store) (*SessionKeyData, *sessions.Session, error) {
 	now := CurrentTime()
 	// first get the session
 	session, err := store.Get(r, c.SessionName)
@@ -252,7 +252,7 @@ func (c SessionController) ValidateSession(r *http.Request, store sessions.Store
 	keyVal, hasKey := session.Values[SessionKey]
 
 	if !hasKey {
-		return nil, session, NotAuthSessionErr
+		return nil, session, ErrNotAuthSession
 	}
 
 	key, ok := keyVal.(string)
@@ -274,7 +274,7 @@ func (c SessionController) ValidateSession(r *http.Request, store sessions.Store
 	session.Options.MaxAge = int(durationLeft / time.Second)
 
 	if KeyInvalid(now, info.ValidUntil) {
-		return nil, session, InvalidKeyErr
+		return nil, session, ErrInvalidKey
 	}
 
 	// everything is fine, so now return everything: the user should be considered
@@ -282,7 +282,7 @@ func (c SessionController) ValidateSession(r *http.Request, store sessions.Store
 	return info, session, nil
 }
 
-func (c SessionController) CreateAuthSession(r *http.Request, store sessions.Store,
+func (c *SessionController) CreateAuthSession(r *http.Request, store sessions.Store,
 	user UserKeyType, validDuration time.Duration) (*SessionKeyData, string, *sessions.Session, error) {
 	session, err := store.Get(r, c.SessionName)
 	if err != nil {
@@ -300,7 +300,7 @@ func (c SessionController) CreateAuthSession(r *http.Request, store sessions.Sto
 
 // NotAuthSessionErr ==> not so bad
 // Something different ==> internal error
-func (c SessionController) EndSession(r *http.Request, store sessions.Store) error {
+func (c *SessionController) EndSession(r *http.Request, store sessions.Store) error {
 	session, err := store.Get(r, c.SessionName)
 	if err != nil {
 		return err
@@ -310,7 +310,7 @@ func (c SessionController) EndSession(r *http.Request, store sessions.Store) err
 	keyVal, hasKey := session.Values[SessionKey]
 
 	if !hasKey {
-		return NotAuthSessionErr
+		return ErrNotAuthSession
 	}
 
 	key, ok := keyVal.(string)
@@ -322,7 +322,7 @@ func (c SessionController) EndSession(r *http.Request, store sessions.Store) err
 	return c.DeleteKey(key)
 }
 
-func (c SessionController) DeleteEntriesDaemon(sleep time.Duration, ctx context.Context, reportErr bool) {
+func (c *SessionController) DeleteEntriesDaemon(sleep time.Duration, ctx context.Context, reportErr bool) {
 	go func() {
 		if ctx == nil {
 			for {

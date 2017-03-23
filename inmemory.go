@@ -55,7 +55,7 @@ func (h *InMemoryHandler) GetData(key string) (*SessionKeyData, error) {
 	if ok {
 		return value, nil
 	} else {
-		return nil, KeyNotFoundErr
+		return nil, ErrKeyNotFound
 	}
 }
 
