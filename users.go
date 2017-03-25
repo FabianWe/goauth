@@ -25,8 +25,6 @@ package goauth
 import (
 	"encoding/hex"
 	"errors"
-	"fmt"
-	"log"
 	"math"
 	"strconv"
 
@@ -97,17 +95,7 @@ var DefaultPWHandler = NewBcryptHandler(-1)
 
 // GenerateHash generates the password hash using bcrypt.
 func (handler *BcryptHandler) GenerateHash(password []byte) ([]byte, error) {
-	res, err := bcrypt.GenerateFromPassword(password, handler.cost)
-	if err != nil {
-		return res, err
-	}
-	// probably useless, but I just want to be sure...
-	if len(res) != handler.PasswordHashLength() {
-		log.Println("Something bad happened while encrypting the password... PROBABLY A BUG")
-		return nil, fmt.Errorf("Error while creating password hash, expected length of %d (bcrypt) but got %d",
-			handler.PasswordHashLength(), len(res))
-	}
-	return res, err
+	return bcrypt.GenerateFromPassword(password, handler.cost)
 }
 
 // CheckPassword checks if the plaintext password was used to create the
@@ -145,7 +133,7 @@ type ScryptHandler struct {
 // You should know what you do however!
 func NewScryptHandler(params *scrypt.Params) *ScryptHandler {
 	if params == nil {
-		params = &scrypt.DefaultParams
+		params = &scrypt.Params{N: 32768, R: 8, P: 2, SaltLen: 16, DKLen: 32}
 	}
 	return &ScryptHandler{Params: *params}
 }
