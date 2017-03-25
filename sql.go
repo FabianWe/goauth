@@ -30,25 +30,77 @@ import (
 	"time"
 )
 
-// General SQL implementation with interfaces, MySQL etc. below.
+// SQLSessionTemplate to generate queries for different SQL flavours such as MySQL
+// or postgres. It must use certain placeholders for example for the table name or
+// key length. See the MySQL implementation, it would be really cumbersome to
+// document all the details.
 type SQLSessionTemplate interface {
+	// InitQ returns a query to initialize the session database.
 	InitQ() string
+
+	// GetQ is a query to select the user identifiaction, the time the key was
+	// created and the time the until the key is valid from the database given
+	// the session key.
 	GetQ() string
+
+	// CreateQ inserts the user identifiaction, the key, the time the key was
+	// created and the time until the key is valid (in that order) in the database.
 	CreateQ() string
+
+	// DeleteForUserQ deletes all entries for a given user identifiaction from the
+	// database.
 	DeleteForUserQ() string
+
+	// DeleteInvalidQ must delete all invalid keys from the database.
 	DeleteInvalidQ() string
+
+	// DeleteKeyQ deletes the entry for a given key from the database.
 	DeleteKeyQ() string
+
+	// TimeFromScanType is a rather odd function, but time fields are handled
+	// differently in different handlers and some handlers even have options to change
+	// that behaviour. Therefor when we get a time field (via the Row.Scan or some
+	// other scan function) we pass a pointer to an interface{} to it.
+	// Whatever that type is depends on the handler.
+	// Example: The MySQL driver by default gets the datetime field as string and has
+	// an option to parse it as time.Time (though this is disabled by default).
+	// So the MySQL implementation first checks if val is already of time.Time and
+	// then returns this value. If it is not why try to read it as a string and parse
+	// this string to a time.Time. Postgres uses time.Time already.
 	TimeFromScanType(val interface{}) (time.Time, error)
 }
 
+// SQLSessionHandler is an implementation of SessionHandler that uses a predinfed
+// set of SQL queries. These queries are generated in NewSQLSessionHandler and stored
+// in strings here. The reason we do that is that SQLSessionTemplate uses
+// placeholders and we want to avoid calling fmt.Sprintf on every query. So now
+// given all the details we simply generate the queries from the template once in
+// NewSQLSessionHandler and replace the table name and key size once.
+// The handler also requires the sql.DB database.
 type SQLSessionHandler struct {
-	DB                                                               *sql.DB
+	// DB is the database to operate on.
+	DB *sql.DB
+
+	// The queries required by this handler.
 	InitQ, GetQ, CreateQ, DeleteForUserQ, DeleteInvalidQ, DeleteKeyQ string
-	TableName                                                        string
-	UserIDType                                                       string
-	KeySize                                                          int
-	TimeFromScanType                                                 func(val interface{}) (time.Time, error)
-	ForceUIDuint                                                     bool
+
+	// TableName is the name of the session table, by default user_sessions.
+	TableName string
+
+	// UserIDType is the sql type that is used to store the user identifiaction.
+	UserIDType string
+
+	// KeySize is the length of the key strings.
+	KeySize int
+
+	// TimeFromScanType: See TimeFromScanType in the documentation of SQLSessionTemplate.
+	TimeFromScanType func(val interface{}) (time.Time, error)
+
+	// ForceUIDuint forces the user id to be of type uint64.
+	// This field exists because most drivers stoer big ints simply as int, which
+	// would mean we could never have more than 2^32 users. I Mean must people don't
+	// have that but I thought it just to be thorough to enforce unsinged ints.
+	ForceUIDuint bool
 	// this is required for example for sqlite, it does not support
 	// multiple goroutines when writing!
 	// I hope this does not slow us down too much...
@@ -56,6 +108,18 @@ type SQLSessionHandler struct {
 	blockDB bool
 }
 
+// NewSQLSessionHandler compiles the query template with the given information.
+// tableName is the name of the SQL table, if set to "" it defaults to
+// "user_sessions".
+// userIDType is the SQL user identifiaction type, if set to "" it defaults to
+// "BIGINT UNSIGNED NOT NULL".
+//
+// The lockDB argument is used for sqlite3 (and maybe other drivers):
+// sqlite3 does not support writing from multiple goroutines and thus the database
+// has to be locked. If set to true a mutex will be used to synchronize access to
+// the database.
+//
+// See documentation of SQLSessionHandler for more details.
 func NewSQLSessionHandler(db *sql.DB, t SQLSessionTemplate, tableName, userIDType string, lockDB bool) *SQLSessionHandler {
 	if tableName == "" {
 		tableName = "user_sessions"
@@ -75,11 +139,6 @@ func NewSQLSessionHandler(db *sql.DB, t SQLSessionTemplate, tableName, userIDTyp
 	h.DeleteInvalidQ = fmt.Sprintf(t.DeleteInvalidQ(), h.TableName)
 	h.DeleteKeyQ = fmt.Sprintf(t.DeleteKeyQ(), h.TableName)
 	return &h
-}
-
-func NewMySQLSessionController(db *sql.DB, tableName, userIDType string) *SessionController {
-	handler := NewSQLSessionHandler(db, NewMySQLSessionTemplate(), tableName, userIDType, false)
-	return NewSessionController(handler)
 }
 
 func (c *SQLSessionHandler) Init() error {
@@ -180,11 +239,20 @@ func (c *SQLSessionHandler) DeleteKey(key string) error {
 	return err
 }
 
+// MySQLSessionTemplate implements SQLSessionTemplate with MySQL queries.
 type MySQLSessionTemplate struct {
 }
 
+// NewMySQLSessionTemplate returns a new MySQLSessionTemplate.
 func NewMySQLSessionTemplate() MySQLSessionTemplate {
 	return MySQLSessionTemplate{}
+}
+
+// NewMySQLSessionController returns a new SessionController that uses a MySQL
+// database.
+func NewMySQLSessionController(db *sql.DB, tableName, userIDType string) *SessionController {
+	handler := NewSQLSessionHandler(db, NewMySQLSessionTemplate(), tableName, userIDType, false)
+	return NewSessionController(handler)
 }
 
 func (t MySQLSessionTemplate) InitQ() string {
@@ -217,6 +285,9 @@ func (t MySQLSessionTemplate) DeleteKeyQ() string {
 	return "DELETE FROM %s WHERE session_key = ?"
 }
 
+// TimeFromScanType for MySQL first checks if the value is already a time.Time
+// (the driver has an option to enable this).
+// If not it pasres the datetime in the format "2006-01-02 15:04:05".
 func (t MySQLSessionTemplate) TimeFromScanType(val interface{}) (time.Time, error) {
 	// first check if we already got a time.Time because parseTime in
 	// the MySQL driver is true
@@ -234,12 +305,17 @@ func (t MySQLSessionTemplate) TimeFromScanType(val interface{}) (time.Time, erro
 	}
 }
 
+// SQLite3SessionTemplate is an implementation of SQLSessionTemplate
+// using sqlite3 queries.
+// Nearly all MySQL queries work, so we simply delegate it to a MySQLSessionTemplate
+// and implement the different queries again.
 type SQLite3SessionTemplate struct {
 	// most of the stuff is the same as for SQL, so we can actually simply
 	// delegate it to this template and just define the new queries
 	MySQLSessionTemplate
 }
 
+// NewSQLite3SessionTemplate returns a new SQLite3SessionTemplate.
 func NewSQLite3SessionTemplate() *SQLite3SessionTemplate {
 	return &SQLite3SessionTemplate{MySQLSessionTemplate: NewMySQLSessionTemplate()}
 }
@@ -253,13 +329,16 @@ func (*SQLite3SessionTemplate) InitQ() string {
 	);`
 }
 
+// NewSQLite3SessionController returns a SessionController that uses sqlite3.
 func NewSQLite3SessionController(db *sql.DB, tableName, userIDType string) *SessionController {
 	handler := NewSQLSessionHandler(db, NewSQLite3SessionTemplate(), tableName, userIDType, true)
 	return NewSessionController(handler)
 }
 
+// PostgresSessionTemplate ist an implementation of SQLSessionTemplate for psotgres.
 type PostgresSessionTemplate struct{}
 
+// NewPostgresSessionTemplate returns a new PostgresSessionTemplate.
 func NewPostgresSessionTemplate() PostgresSessionTemplate {
 	return PostgresSessionTemplate{}
 }
@@ -311,6 +390,10 @@ func (t PostgresSessionTemplate) TimeFromScanType(val interface{}) (time.Time, e
 	}
 }
 
+// NewPostgresSessionController returns a new SessionController using postgres.
+// It changes the default value of userIDType (the NewSQLSessionHandler uses
+// BIGINT UNSIGNED NOT NULL). In postgres there is no unsigned keyword, so we use
+// "BIGINT NOT NULL" as default.
 func NewPostgresSessionController(db *sql.DB, tableName, userIDType string) *SessionController {
 	if userIDType == "" {
 		userIDType = "BIGINT NOT NULL"
