@@ -460,6 +460,9 @@ type SQLUserQueries struct {
 	// username. Example in MySQL:
 	// "SELECT id, password FROM users WHERE username = ?"
 	ValidateQuery string
+
+	// UpdatePasswordQuery is the query to update the password for a given username.
+	UpdatePasswordQuery string
 }
 
 // MySQLUserQueries provides queries to use with MySQL.
@@ -484,8 +487,9 @@ func MySQLUserQueries(pwLength int) *SQLUserQueries {
 		VALUES(?, ?, ?, ?, ?, ?, ?);
 	`
 	validateQ := "SELECT id, password FROM users WHERE username = ?"
+	updateQ := "UPDATE users SET password=? WHERE username=?"
 	return &SQLUserQueries{PwLength: pwLength, InitQuery: initQ,
-		InsertQuery: insertQ, ValidateQuery: validateQ}
+		InsertQuery: insertQ, ValidateQuery: validateQ, UpdatePasswordQuery: updateQ}
 }
 
 // PostgresUserQueries provides queries to use with postgres.
@@ -509,8 +513,9 @@ func PostgresUserQueries(pwLength int) *SQLUserQueries {
 		VALUES ($1, $2, $3, $4, $5, $6, $7);
 	`
 	validateQ := "SELECT id, password FROM users WHERE username = $1"
+	updateQ := "UPDATE users SET password=$1 WHERE username = $2"
 	return &SQLUserQueries{PwLength: pwLength, InitQuery: initQ,
-		InsertQuery: insertQ, ValidateQuery: validateQ}
+		InsertQuery: insertQ, ValidateQuery: validateQ, UpdatePasswordQuery: updateQ}
 }
 
 // SQLite3UserQueries provides queries to use with sqlite3.
@@ -674,4 +679,21 @@ func (handler *SQLUserHandler) Validate(userName string, cleartextPwCheck []byte
 	} else {
 		return NoUserID, nil
 	}
+}
+
+func (handler *SQLUserHandler) UpdatePassword(username string, plainPW []byte) error {
+	// try to encrypt the pw
+	encrypted, encErr := handler.PwHandler.GenerateHash(plainPW)
+	if encErr != nil {
+		return encErr
+	}
+
+	if handler.blockDB {
+		handler.mutex.Lock()
+		defer handler.mutex.Unlock()
+	}
+
+	// now try to update the password
+	_, err := handler.DB.Exec(handler.UpdatePasswordQuery, encrypted, username)
+	return err
 }

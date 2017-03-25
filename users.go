@@ -179,6 +179,7 @@ var ErrUserNotFound = errors.New("Username not found.")
 
 // UserHandler is an interface to deal with the management of
 // users.
+// It should use a PasswordHandler for generating passwords to store.
 type UserHandler interface {
 	// Init initializes the underlying storage.
 	// Use this function every time you start your app, this
@@ -208,4 +209,7 @@ type UserHandler interface {
 	// On failure it returns NoUserID and on success the id of the user with
 	// username.
 	Validate(userName string, CleartextPwCheck []byte) (uint64, error)
+
+	// UpdatePassword updates the password for a user.
+	UpdatePassword(username string, plainPW []byte) error
 }
