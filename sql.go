@@ -574,7 +574,7 @@ type SQLUserHandler struct {
 // drivers handle this.
 func NewSQLUserHandler(queries *SQLUserQueries, db *sql.DB, pwHandler PasswordHandler, blockDB bool) *SQLUserHandler {
 	if pwHandler == nil {
-		pwHandler = NewBcryptHandler(-1)
+		pwHandler = DefaultPWHandler
 	}
 	return &SQLUserHandler{SQLUserQueries: queries, DB: db, PwHandler: pwHandler, blockDB: blockDB}
 }
@@ -582,7 +582,7 @@ func NewSQLUserHandler(queries *SQLUserQueries, db *sql.DB, pwHandler PasswordHa
 // NewMySQLUserHandler returns a new handler that uses MySQL.
 func NewMySQLUserHandler(db *sql.DB, pwHandler PasswordHandler) *SQLUserHandler {
 	if pwHandler == nil {
-		pwHandler = NewBcryptHandler(-1)
+		pwHandler = DefaultPWHandler
 	}
 	return NewSQLUserHandler(MySQLUserQueries(pwHandler.PasswordHashLength()),
 		db, pwHandler, false)
@@ -592,7 +592,7 @@ func NewMySQLUserHandler(db *sql.DB, pwHandler PasswordHandler) *SQLUserHandler 
 // sqlite3. Note that sqlite3 is really slow with this stuff!
 func NewSQLite3UserHandler(db *sql.DB, pwHandler PasswordHandler) *SQLUserHandler {
 	if pwHandler == nil {
-		pwHandler = NewBcryptHandler(-1)
+		pwHandler = DefaultPWHandler
 	}
 	return NewSQLUserHandler(SQLite3UserQueries(pwHandler.PasswordHashLength()),
 		db, pwHandler, true)
@@ -602,7 +602,7 @@ func NewSQLite3UserHandler(db *sql.DB, pwHandler PasswordHandler) *SQLUserHandle
 // postgres.
 func NewPostgresUserHandler(db *sql.DB, pwHandler PasswordHandler) *SQLUserHandler {
 	if pwHandler == nil {
-		pwHandler = NewBcryptHandler(-1)
+		pwHandler = DefaultPWHandler
 	}
 	return NewSQLUserHandler(PostgresUserQueries(pwHandler.PasswordHashLength()),
 		db, pwHandler, false)

@@ -23,10 +23,14 @@
 package goauth
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
 	"math"
+	"strconv"
+
+	scrypt "github.com/elithrar/simple-scrypt"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -88,6 +92,9 @@ func NewBcryptHandler(cost int) *BcryptHandler {
 	return &BcryptHandler{cost: cost}
 }
 
+// DefaultPWHandler is the default handler for password encryption / decription.
+var DefaultPWHandler = NewBcryptHandler(-1)
+
 // GenerateHash generates the password hash using bcrypt.
 func (handler *BcryptHandler) GenerateHash(password []byte) ([]byte, error) {
 	res, err := bcrypt.GenerateFromPassword(password, handler.cost)
@@ -95,9 +102,10 @@ func (handler *BcryptHandler) GenerateHash(password []byte) ([]byte, error) {
 		return res, err
 	}
 	// probably useless, but I just want to be sure...
-	if len(res) != 60 {
+	if len(res) != handler.PasswordHashLength() {
 		log.Println("Something bad happened while encrypting the password... PROBABLY A BUG")
-		return nil, fmt.Errorf("Error while creating password hash, expected length of 60 (bcrypt) but got %d", len(res))
+		return nil, fmt.Errorf("Error while creating password hash, expected length of %d (bcrypt) but got %d",
+			handler.PasswordHashLength(), len(res))
 	}
 	return res, err
 }
@@ -124,6 +132,56 @@ func (handler *BcryptHandler) CheckPassword(hashedPW, password []byte) (bool, er
 // that is 60.
 func (handler *BcryptHandler) PasswordHashLength() int {
 	return DefaultPWLength
+}
+
+// ScryptHandler is a PasswordHandler that uses scrypt.
+type ScryptHandler struct {
+	// Stores the parameters for scrypt.
+	Params scrypt.Params
+}
+
+// NewScryptHandler returns a new ScryptHandler that uses the defined
+// parameters. Set to nil to use scryp.DefaultParams.
+// You should know what you do however!
+func NewScryptHandler(params *scrypt.Params) *ScryptHandler {
+	if params == nil {
+		params = &scrypt.DefaultParams
+	}
+	return &ScryptHandler{Params: *params}
+}
+
+// GenerateHash generates the password hash using scrypt.
+func (handler *ScryptHandler) GenerateHash(password []byte) ([]byte, error) {
+	return scrypt.GenerateFromPassword(password, handler.Params)
+}
+
+// CheckPassword checks if the plaintext password was used to create the
+// hashedPW.
+func (handler *ScryptHandler) CheckPassword(hashedPW, password []byte) (bool, error) {
+	// get error from bcrypt
+	err := scrypt.CompareHashAndPassword(hashedPW, password)
+	// Check what the error was, if it is nil everything is ok
+	if err == nil {
+		return true, nil
+	}
+	// if it is ErrMismatchedHashAndPassword no real error occurred, pws simply
+	// didn't match
+	if err == scrypt.ErrMismatchedHashAndPassword {
+		return false, nil
+	}
+	// otherwise something really went wrong
+	return false, err
+}
+
+// PasswordHashLength returns the default length for scrypt.
+func (handler *ScryptHandler) PasswordHashLength() int {
+	// this is a bit ugly but well...
+	nLength := len(strconv.Itoa(handler.Params.N))
+	rLength := len(strconv.Itoa(handler.Params.R))
+	pLength := len(strconv.Itoa(handler.Params.P))
+	saltLength := hex.EncodedLen(handler.Params.SaltLen)
+	dkLength := hex.EncodedLen(handler.Params.DKLen)
+	return nLength + rLength + pLength + saltLength + dkLength + 4
 }
 
 // ErrUserNotFound is an error that is used in the Validate
