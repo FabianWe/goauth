@@ -560,7 +560,7 @@ type SQLUserHandler struct {
 //
 // pwHandler is used to encrypt / validate passwords.
 // Set this to nil if you want to use the default handler
-// (bcrypt with cost 10).
+// (bcrypt with cost 13).
 //
 // blockDB should be set to true if your database does not
 // support access to the database by different goroutines.

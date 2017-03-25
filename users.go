@@ -24,6 +24,8 @@ package goauth
 
 import (
 	"errors"
+	"fmt"
+	"log"
 	"math"
 
 	"golang.org/x/crypto/bcrypt"
@@ -58,7 +60,7 @@ type PasswordHandler interface {
 
 const (
 	// DefaultCost is the default cost parameter for bcrypt.
-	DefaultCost = 10
+	DefaultCost = 13
 
 	// DefaultPWLength is he default length of encrypted passwords.
 	// This is 60 for bcrypt.
@@ -76,7 +78,7 @@ type BcryptHandler struct {
 
 // NewBcryptHandler creates a new PasswordHandler that uses bcrypt.
 // cost is the cost parameter for the algorithm, use -1 for the default value
-// (which should be fine in most cases). The default value is 10.
+// (which should be fine in most cases). The default value is 13.
 // Note that bcrypt has some further restrictions on the cost parameter:
 // Currently it must be between 4 and 31.
 func NewBcryptHandler(cost int) *BcryptHandler {
@@ -88,7 +90,16 @@ func NewBcryptHandler(cost int) *BcryptHandler {
 
 // GenerateHash generates the password hash using bcrypt.
 func (handler *BcryptHandler) GenerateHash(password []byte) ([]byte, error) {
-	return bcrypt.GenerateFromPassword(password, handler.cost)
+	res, err := bcrypt.GenerateFromPassword(password, handler.cost)
+	if err != nil {
+		return res, err
+	}
+	// probably useless, but I just want to be sure...
+	if len(res) != 60 {
+		log.Println("Something bad happened while encrypting the password... PROBABLY A BUG")
+		return nil, fmt.Errorf("Error while creating password hash, expected length of 60 (bcrypt) but got %d", len(res))
+	}
+	return res, err
 }
 
 // CheckPassword checks if the plaintext password was used to create the
