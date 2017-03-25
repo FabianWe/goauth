@@ -1,7 +1,7 @@
 # goauth
 Package goauth provides convinient functions to authenticate users, encrypt their passwords and create and check login sessions (via tokens).
 
-The documentation of this package can be found on [GoDoc](https://godoc.org/github.com/FabianWe/goauth%20GoDoc).
+The documentation of this package can be found on [GoDoc](https://godoc.org/github.com/FabianWe/goauth).
 
 License: [MIT License](https://opensource.org/licenses/MIT)
 
@@ -32,7 +32,8 @@ If you're planning to you *sqlite* (support for that should be out very soon) ta
 go-sqlite3 is cgo package. If you want to build your app using go-sqlite3, you need gcc. However, if you install go-sqlite3 with go install github.com/mattn/go-sqlite3, you don't need gcc to build your app anymore."
 
 ## Where do I start?
-The [wiki](https://github.com/FabianWe/goauth/wiki) of this project is a good starting point. It explains most of the basics. Also you should read the [documentation](https://godoc.org/github.com/FabianWe/goauth%20GoDoc) on GoDoc.
+The [wiki](https://github.com/FabianWe/goauth/wiki) of this project is a good starting point. It explains most of the basics. Also you should read the [
+entation](https://godoc.org/github.com/FabianWe/goauth) on GoDoc.
 
 In order to work properly you need a good backend for your storage. There is an in memory implementation for user sessions, but this is not very efficient and also you loose all your data once you stop your program.
 
