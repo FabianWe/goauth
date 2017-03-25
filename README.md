@@ -9,7 +9,7 @@ License: [MIT License](https://opensource.org/licenses/MIT)
 This package may help you if:
 
  - You wish to manage user sessions: A user logs in and stays logged in until his login session expires. This package creates a database (at the moment only MySQL is supported) and stores session keys in it. It helps you with the generation and validation of such keys. You can store them in a secure cookie for example.
- - Manage user accounts in a database: There are different ways to accomplish this, either by using a default scheme that is defined in this package our with your own scheme. This package takes care that user passwords are stored in a secure way using [bcrypt](https://godoc.org/github.com/FabianWe/goauth "bcrypt").
+ - Manage user accounts in a database: There are different ways to accomplish this, either by using a default scheme that is defined in this package our with your own scheme. This package takes care that user passwords are stored in a secure way using [bcrypt](https://godoc.org/golang.org/x/crypto/bcrypt) or with onre more line of code [scrypt](https://godoc.org/golang.org/x/crypto/scrypt).
 
 I wanted to develop some small Go web applications without a big framework or something like that but with user authentication and couldn't find a suitable and small library. So I've written this one by myself.
 
