@@ -39,6 +39,14 @@ In order to work properly you need a good backend for your storage. There is an 
 
 You should really use a database, such as MariadDB (or any other MySQL) or postgres. We also support sqlite3, but this is very slow for this stuff and so not a good choice.
 
+One important note: Since we use gorilla sessions you should take care of the advice in their docs: If you aren't using gorilla/mux, you need to wrap your handlers with context.ClearHandler as or else you will leak memory!
+
+For example use
+
+```go
+http.ListenAndServe(":8080", context.ClearHandler(http.DefaultServeMux))
+```
+
 ## Some Copyright Notices
 goauth is distributed under the [MIT License](https://opensource.org/licenses/MIT) license:
 
