@@ -45,6 +45,7 @@ type MemcachedSessionHandler struct {
 
 	currentSessionKeyIdentifier int
 	mutex                       sync.RWMutex
+	r                           *rand.Rand
 }
 
 func NewMemcachedSessionHandler(parent SessionHandler, client *memcache.Client) *MemcachedSessionHandler {
@@ -56,9 +57,11 @@ func NewMemcachedSessionHandler(parent SessionHandler, client *memcache.Client) 
 		}
 		return res, nil
 	}
+	r := rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
 	return &MemcachedSessionHandler{Parent: parent, Client: client,
-		SessionPrefix: "skey:", currentSessionKeyIdentifier: rand.Int(),
-		ConvertUser: defaultFunc, Expiration: 3600}
+		SessionPrefix: "skey:", currentSessionKeyIdentifier: r.Int(),
+		ConvertUser: defaultFunc, Expiration: 3600,
+		r: r}
 }
 
 func (handler *MemcachedSessionHandler) getCurrentSessionKeyIdentifier() int {
@@ -69,7 +72,7 @@ func (handler *MemcachedSessionHandler) getCurrentSessionKeyIdentifier() int {
 
 func (handler *MemcachedSessionHandler) updateCurrentSessionKeyIdentifier() {
 	handler.mutex.Lock()
-	handler.currentSessionKeyIdentifier = rand.Int()
+	handler.currentSessionKeyIdentifier = handler.r.Int()
 	defer handler.mutex.Unlock()
 }
 
@@ -116,17 +119,39 @@ func (handler *MemcachedSessionHandler) Init() error {
 	return handler.Parent.Init()
 }
 
+func (handler *MemcachedSessionHandler) setMemcached(key string, value *SessionKeyData) {
+	memcachedKey := handler.formatKeyEntry(key)
+	json, jsonErr := handler.FormatJSONData(value)
+	if jsonErr != nil {
+		log.Println("WARNING: Insertion in memcached failed, can't encode json")
+		return
+	}
+	// finally set
+	if err := handler.Client.Set(&memcache.Item{Key: memcachedKey, Value: json, Expiration: handler.Expiration}); err != nil {
+		log.Println("WARNING: Insertion in memcached failed, unkown error: ", err)
+	}
+}
+
 func (handler *MemcachedSessionHandler) GetData(key string) (*SessionKeyData, error) {
 	// first get the key we store in memcached
 	memcachedKey := handler.formatKeyEntry(key)
 	// try to get the key from memcached
 	item, err := handler.Client.Get(memcachedKey)
 	if err != nil {
-		if err == memcache.ErrCacheMiss {
-			// everything ok, just as the parent
-			return handler.Parent.GetData(key)
+		// just ask the parent
+		// if parent returns a result add it to memcached
+		parentData, parentErr := handler.Parent.GetData(key)
+		if parentErr != nil {
+			return parentData, parentErr
 		}
-		log.Printf("WARNING: memcached returned an unkown error: %v\n", err)
+		if err != memcache.ErrCacheMiss {
+			log.Printf("WARNING: memcached returned an unkown error: %v\n", err)
+			// don't add it something seems to be wrong...
+			return parentData, parentErr
+		}
+		// insert to memcached
+		handler.setMemcached(key, parentData)
+		return parentData, parentErr
 	}
 	// entry was found
 	data, jsonErr := handler.ParseJSONData(item.Value)
@@ -141,20 +166,10 @@ func (handler *MemcachedSessionHandler) CreateEntry(user UserKeyType, key string
 	// first add to parent, store the result here as well
 	data, parentErr := handler.Parent.CreateEntry(user, key, validDuration)
 	if parentErr != nil {
-		return nil, parentErr
+		return data, parentErr
 	}
-	memcachedKey := handler.formatKeyEntry(key)
-	// insert here as well
-	json, jsonErr := handler.FormatJSONData(data)
-	if jsonErr != nil {
-		log.Println("WARNING: Insertion in memcached failed, can't encode json")
-		return data, nil
-	}
-	// finally set
-	if err := handler.Client.Set(&memcache.Item{Key: memcachedKey, Value: json, Expiration: handler.Expiration}); err != nil {
-		log.Println("WARNING: Insertion in memcached failed, unkown error: ", err)
-	}
-	return data, nil
+	handler.setMemcached(key, data)
+	return data, parentErr
 }
 
 func (handler *MemcachedSessionHandler) DeleteEntriesForUser(user UserKeyType) (int64, error) {
@@ -164,8 +179,7 @@ func (handler *MemcachedSessionHandler) DeleteEntriesForUser(user UserKeyType) (
 }
 
 func (handler *MemcachedSessionHandler) DeleteInvalidKeys() (int64, error) {
-	// invalidate all keys
-	handler.updateCurrentSessionKeyIdentifier()
+	// actually we do nothing...
 	return handler.Parent.DeleteInvalidKeys()
 }
 
