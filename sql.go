@@ -248,10 +248,15 @@ func NewMySQLSessionTemplate() MySQLSessionTemplate {
 	return MySQLSessionTemplate{}
 }
 
+// NewMYSQLSessionHandler returns a new SQLSessionHandler that uses MySQL.
+func NewMySQLSessionHandler(db *sql.DB, tableName, userIDType string) *SQLSessionHandler {
+	return NewSQLSessionHandler(db, NewMySQLSessionTemplate(), tableName, userIDType, false)
+}
+
 // NewMySQLSessionController returns a new SessionController that uses a MySQL
 // database.
 func NewMySQLSessionController(db *sql.DB, tableName, userIDType string) *SessionController {
-	handler := NewSQLSessionHandler(db, NewMySQLSessionTemplate(), tableName, userIDType, false)
+	handler := NewMySQLSessionHandler(db, tableName, userIDType)
 	return NewSessionController(handler)
 }
 
@@ -329,9 +334,15 @@ func (*SQLite3SessionTemplate) InitQ() string {
 	);`
 }
 
+// NewSQLite3SessionHandler returns a new SQLSessionHandler that uses
+// sqlite3.
+func NewSQLite3SessionHandler(db *sql.DB, tableName, userIDType string) *SQLSessionHandler {
+	return NewSQLSessionHandler(db, NewSQLite3SessionTemplate(), tableName, userIDType, true)
+}
+
 // NewSQLite3SessionController returns a SessionController that uses sqlite3.
 func NewSQLite3SessionController(db *sql.DB, tableName, userIDType string) *SessionController {
-	handler := NewSQLSessionHandler(db, NewSQLite3SessionTemplate(), tableName, userIDType, true)
+	handler := NewSQLite3SessionHandler(db, tableName, userIDType)
 	return NewSessionController(handler)
 }
 
@@ -390,15 +401,23 @@ func (t PostgresSessionTemplate) TimeFromScanType(val interface{}) (time.Time, e
 	}
 }
 
+// NewPostgresSessionHandler returns a new SQLSessionHandler using postgres.
+// It changes the default value of userIDType (the NewSQLSessionHandler uses
+// BIGINT UNSIGNED NOT NULL). In postgres there is no unsigned keyword, so we use
+// "BIGINT NOT NULL" as default.
+func NewPostgresSessionHandler(db *sql.DB, tableName, userIDType string) *SQLSessionHandler {
+	if userIDType == "" {
+		userIDType = "BIGINT NOT NULL"
+	}
+	return NewSQLSessionHandler(db, NewPostgresSessionTemplate(), tableName, userIDType, false)
+}
+
 // NewPostgresSessionController returns a new SessionController using postgres.
 // It changes the default value of userIDType (the NewSQLSessionHandler uses
 // BIGINT UNSIGNED NOT NULL). In postgres there is no unsigned keyword, so we use
 // "BIGINT NOT NULL" as default.
 func NewPostgresSessionController(db *sql.DB, tableName, userIDType string) *SessionController {
-	if userIDType == "" {
-		userIDType = "BIGINT NOT NULL"
-	}
-	handler := NewSQLSessionHandler(db, NewPostgresSessionTemplate(), tableName, userIDType, false)
+	handler := NewPostgresSessionHandler(db, tableName, userIDType)
 	return NewSessionController(handler)
 }
 

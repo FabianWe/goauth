@@ -25,11 +25,12 @@ package goauth
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"math/rand"
 	"strconv"
 	"sync"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/bradfitz/gomemcache/memcache"
 )
@@ -84,16 +85,18 @@ func (handler *MemcachedSessionHandler) formatKeyEntry(key string) string {
 }
 
 func (handler *MemcachedSessionHandler) FormatJSONData(data *SessionKeyData) ([]byte, error) {
-	values := map[string]interface{}{"user": fmt.Sprintf("%v", data.User),
-		"creation": data.CreationTime.Format("2006-01-02 15:04:05"),
-		"valid":    data.ValidUntil.Format("2006-01-02 15:04:05")}
+	values := map[string]interface{}{"u": fmt.Sprintf("%v", data.User),
+		"c": data.CreationTime.Format("2006-01-02 15:04:05"),
+		"v": data.ValidUntil.Format("2006-01-02 15:04:05")}
 	return json.Marshal(values)
 }
 
 // TODO make private
 func (handler *MemcachedSessionHandler) ParseJSONData(b []byte) (*SessionKeyData, error) {
 	type parseType struct {
-		User, Creation, Valid string
+		User     string `json:"u"`
+		Creation string `json:"c"`
+		Valid    string `json:"v"`
 	}
 	var intermediate parseType
 	err := json.Unmarshal(b, &intermediate)
@@ -123,12 +126,12 @@ func (handler *MemcachedSessionHandler) setMemcached(key string, value *SessionK
 	memcachedKey := handler.formatKeyEntry(key)
 	json, jsonErr := handler.FormatJSONData(value)
 	if jsonErr != nil {
-		log.Println("WARNING: Insertion in memcached failed, can't encode json")
+		log.WithError(jsonErr).Warn("Insertion in memcached failed, can't encode json")
 		return
 	}
 	// finally set
 	if err := handler.Client.Set(&memcache.Item{Key: memcachedKey, Value: json, Expiration: handler.Expiration}); err != nil {
-		log.Println("WARNING: Insertion in memcached failed, unkown error: ", err)
+		log.WithError(err).Warn("Insertion in memcached failed, unkown error.")
 	}
 }
 
@@ -145,7 +148,7 @@ func (handler *MemcachedSessionHandler) GetData(key string) (*SessionKeyData, er
 			return parentData, parentErr
 		}
 		if err != memcache.ErrCacheMiss {
-			log.Printf("WARNING: memcached returned an unkown error: %v\n", err)
+			log.WithError(err).Warn("memcached returned an unkown error")
 			// don't add it something seems to be wrong...
 			return parentData, parentErr
 		}
@@ -156,7 +159,7 @@ func (handler *MemcachedSessionHandler) GetData(key string) (*SessionKeyData, er
 	// entry was found
 	data, jsonErr := handler.ParseJSONData(item.Value)
 	if jsonErr != nil {
-		log.Println("WARNING: memcached result parsing failed, this should not happen... Asking parent")
+		log.WithError(jsonErr).Warn("memcached result parsing failed, this should not happen... Asking parent")
 		return handler.Parent.GetData(key)
 	}
 	return data, nil
@@ -186,7 +189,7 @@ func (handler *MemcachedSessionHandler) DeleteInvalidKeys() (int64, error) {
 func (handler *MemcachedSessionHandler) DeleteKey(key string) error {
 	// remove the key from memcached
 	if err := handler.Client.Delete(handler.formatKeyEntry(key)); err != nil && err != memcache.ErrCacheMiss {
-		log.Println("WARNING: Unkown memcached error: ", err)
+		log.WithError(err).Warn("Unkown memcached error")
 	}
 	return handler.Parent.DeleteKey(key)
 }
