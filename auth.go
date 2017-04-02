@@ -392,7 +392,7 @@ func (c *SessionController) DeleteEntriesDaemon(sleep time.Duration, ctx context
 		if ctx == nil {
 			for {
 				if _, err := c.DeleteInvalidKeys(); reportErr && err != nil {
-					log.WithError(err).Error("Error deleting invalid keys.")
+					log.WithError(err).Error("goauth: Error deleting invalid keys.")
 				}
 				time.Sleep(sleep)
 			}
@@ -406,7 +406,7 @@ func (c *SessionController) DeleteEntriesDaemon(sleep time.Duration, ctx context
 					return
 				case <-next:
 					if _, err := c.DeleteInvalidKeys(); reportErr && err != nil {
-						log.WithError(err).Error("Error deleting invalid keys.")
+						log.WithError(err).Error("goauth: Error deleting invalid keys.")
 					}
 					go func() {
 						time.Sleep(sleep)

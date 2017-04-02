@@ -126,12 +126,12 @@ func (handler *MemcachedSessionHandler) setMemcached(key string, value *SessionK
 	memcachedKey := handler.formatKeyEntry(key)
 	json, jsonErr := handler.FormatJSONData(value)
 	if jsonErr != nil {
-		log.WithError(jsonErr).Warn("Insertion in memcached failed, can't encode json")
+		log.WithError(jsonErr).Warn("goauth: Insertion in memcached failed, can't encode json")
 		return
 	}
 	// finally set
 	if err := handler.Client.Set(&memcache.Item{Key: memcachedKey, Value: json, Expiration: handler.Expiration}); err != nil {
-		log.WithError(err).Warn("Insertion in memcached failed, unkown error.")
+		log.WithError(err).Warn("goauth: Insertion in memcached failed, unkown error.")
 	}
 }
 
@@ -148,7 +148,7 @@ func (handler *MemcachedSessionHandler) GetData(key string) (*SessionKeyData, er
 			return parentData, parentErr
 		}
 		if err != memcache.ErrCacheMiss {
-			log.WithError(err).Warn("memcached returned an unkown error")
+			log.WithError(err).Warn("goauth: memcached returned an unkown error")
 			// don't add it something seems to be wrong...
 			return parentData, parentErr
 		}
@@ -159,7 +159,7 @@ func (handler *MemcachedSessionHandler) GetData(key string) (*SessionKeyData, er
 	// entry was found
 	data, jsonErr := handler.ParseJSONData(item.Value)
 	if jsonErr != nil {
-		log.WithError(jsonErr).Warn("memcached result parsing failed, this should not happen... Asking parent")
+		log.WithError(jsonErr).Warn("goauth: memcached result parsing failed, this should not happen... Asking parent")
 		return handler.Parent.GetData(key)
 	}
 	return data, nil
@@ -189,7 +189,7 @@ func (handler *MemcachedSessionHandler) DeleteInvalidKeys() (int64, error) {
 func (handler *MemcachedSessionHandler) DeleteKey(key string) error {
 	// remove the key from memcached
 	if err := handler.Client.Delete(handler.formatKeyEntry(key)); err != nil && err != memcache.ErrCacheMiss {
-		log.WithError(err).Warn("Unkown memcached error")
+		log.WithError(err).Warn("goauth: Unkown memcached error")
 	}
 	return handler.Parent.DeleteKey(key)
 }
