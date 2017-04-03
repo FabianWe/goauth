@@ -37,7 +37,8 @@ entation](https://godoc.org/github.com/FabianWe/goauth) on GoDoc.
 
 In order to work properly you need a good backend for your storage. There is an in memory implementation for user sessions, but this is not very efficient and also you loose all your data once you stop your program.
 
-You should really use a database, such as MariadDB (or any other MySQL) or postgres. We also support sqlite3, but this is very slow for this stuff and so not a good choice.
+You should really use a database, such as MariadDB (or any other MySQL) or postgres. We also support sqlite3, but this is very slow for this stuff and so not a good choice. There is also a cached version with memcached with another backend (from v0.2 on).
+Since version v0.3 there is also a session handler using redis.
 
 One important note: Since we use gorilla sessions you should take care of the advice in their docs: If you aren't using gorilla/mux, you need to wrap your handlers with context.ClearHandler as or else you will leak memory!
 
