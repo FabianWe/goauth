@@ -234,18 +234,28 @@ func (handler *RedisSessionHandler) DeleteInvalidKeys() (int64, error) {
 
 // Users stuff
 
+// RedisUserHandler is a UserHandler that uses redis.
 type RedisUserHandler struct {
-	Client    *redis.Client
+	// Client is the client used to connect to redis.
+	Client *redis.Client
+
+	// PwHandler is used for password encryption / decryption
 	PwHandler PasswordHandler
 
+	// UserPrefix gets appended before the username in the redis key.
+	// Defaults to "user:" in NewRedisUserHandler.
+	// NextIDKey is the ID that was last used to create a user.
+	// This is the key that stores the value in redis.
 	UserPrefix, NextIDKey string
 }
 
+// NewRedisUserHandler returns a new RedisUserHandler.
 func NewRedisUserHandler(client *redis.Client, pwHandler PasswordHandler) *RedisUserHandler {
 	if pwHandler == nil {
 		pwHandler = DefaultPWHandler
 	}
-	return &RedisUserHandler{Client: client, PwHandler: pwHandler, UserPrefix: "user:"}
+	return &RedisUserHandler{Client: client, PwHandler: pwHandler, UserPrefix: "user:",
+		NextIDKey: "nxtUserid"}
 }
 
 func (handler *RedisUserHandler) Init() error {
