@@ -119,7 +119,9 @@ func (handler *RedisSessionHandler) delUserKeys(userIdentifier string, delAll bo
 				log.WithError(delErr).Warn("Can't delete keys for user")
 				return 0, delErr
 			} else {
-				log.Infof("Deleted %d keys from users set", numDel)
+				if numDel > 0 {
+					log.Infof("Deleted %d keys from users set", numDel)
+				}
 				return numDel, nil
 			}
 		} else {
