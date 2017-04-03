@@ -33,6 +33,8 @@ import (
 	"github.com/go-redis/redis"
 )
 
+// Sessions stuff
+
 // RedisSessionHandler is a session Handler using redis.
 // This works the following way:
 // All session keys are added to redis in the form
@@ -228,4 +230,115 @@ func (handler *RedisSessionHandler) DeleteEntriesForUser(user UserKeyType) (int6
 
 func (handler *RedisSessionHandler) DeleteInvalidKeys() (int64, error) {
 	return 0, nil
+}
+
+// Users stuff
+
+type RedisUserHandler struct {
+	Client    *redis.Client
+	PwHandler PasswordHandler
+
+	UserPrefix, NextIDKey string
+}
+
+func NewRedisUserHandler(client *redis.Client, pwHandler PasswordHandler) *RedisUserHandler {
+	if pwHandler == nil {
+		pwHandler = DefaultPWHandler
+	}
+	return &RedisUserHandler{Client: client, PwHandler: pwHandler, UserPrefix: "user:"}
+}
+
+func (handler *RedisUserHandler) Init() error {
+	return nil
+}
+
+func (handler *RedisUserHandler) Insert(userName, firstName, lastName, email string, plainPW []byte) (uint64, error) {
+	// encrypt password
+	encrypted, encErr := handler.PwHandler.GenerateHash(plainPW)
+	if encErr != nil {
+		return NoUserID, encErr
+	}
+	userkey := fmt.Sprintf("%s%v", handler.UserPrefix, userName)
+	// check if user already exists
+	if exists, existsErr := handler.Client.Exists(userkey).Result(); existsErr != nil {
+		return NoUserID, existsErr
+	} else if exists > 0 {
+		// user already exists
+		return NoUserID, errors.New("Username already in use")
+	}
+	// get next id
+	id, idErr := handler.Client.Incr(handler.NextIDKey).Result()
+	if idErr != nil {
+		return NoUserID, idErr
+	}
+	// insert
+	insertErr := handler.Client.HMSet(userkey, map[string]interface{}{
+		"id":        id,
+		"username":  userName,
+		"firstName": firstName,
+		"lastName":  lastName,
+		"email":     email,
+		"password":  string(encrypted),
+	}).Err()
+	if insertErr != nil {
+		return NoUserID, insertErr
+	}
+	// success
+	return uint64(id), nil
+}
+
+func (handler *RedisUserHandler) Validate(userName string, cleartextPwCheck []byte) (uint64, error) {
+	// try to get the entry
+	userkey := fmt.Sprintf("%s%v", handler.UserPrefix, userName)
+	entry, getErr := handler.Client.HMGet(userkey, "id", "password").Result()
+	if getErr != nil {
+		return NoUserID, getErr
+	}
+	if entry[0] == nil {
+		// not found
+		return NoUserID, ErrUserNotFound
+	}
+	idStr, idOk := entry[0].(string)
+	if !idOk {
+		return NoUserID, errors.New("Weird type in redis, should not happen")
+	}
+	pwStr, pwOk := entry[1].(string)
+	if !pwOk {
+		return NoUserID, errors.New("Weird type in redis, should not happen")
+	}
+	test, testErr := handler.PwHandler.CheckPassword([]byte(pwStr), cleartextPwCheck)
+	if testErr != nil {
+		return NoUserID, testErr
+	}
+	if test {
+		// parse entry
+		id, parseErr := strconv.ParseUint(idStr, 10, 64)
+		if parseErr != nil {
+			return NoUserID, parseErr
+		}
+		return id, nil
+	} else {
+		return NoUserID, nil
+	}
+}
+
+func (handler *RedisUserHandler) UpdatePassword(userName string, plainPW []byte) error {
+	// try to encrypt the pw
+	encrypted, encErr := handler.PwHandler.GenerateHash(plainPW)
+	if encErr != nil {
+		return encErr
+	}
+	// try to get the entry
+	userkey := fmt.Sprintf("%s%v", handler.UserPrefix, userName)
+	exists, existsErr := handler.Client.Exists(userkey).Result()
+	if existsErr != nil {
+		return existsErr
+	} else if exists == 0 {
+		return ErrUserNotFound
+	}
+	// update
+	updateErr := handler.Client.HMSet(userkey, map[string]interface{}{
+		"password": string(encrypted),
+	}).Err()
+	return updateErr
 }
