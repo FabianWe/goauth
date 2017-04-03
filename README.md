@@ -8,15 +8,15 @@ License: [MIT License](https://opensource.org/licenses/MIT)
 # What is this package for
 This package may help you if:
 
- - You wish to manage user sessions: A user logs in and stays logged in until his login session expires. This package creates a database (at the moment only MySQL is supported) and stores session keys in it. It helps you with the generation and validation of such keys. You can store them in a secure cookie for example.
- - Manage user accounts in a database: There are different ways to accomplish this, either by using a default scheme that is defined in this package our with your own scheme. This package takes care that user passwords are stored in a secure way using [bcrypt](https://godoc.org/golang.org/x/crypto/bcrypt) or with onre more line of code [scrypt](https://godoc.org/golang.org/x/crypto/scrypt).
+ - You wish to manage user sessions: A user logs in and stays logged in until his login session expires. This package creates a database and stores session keys in it. It helps you with the generation and validation of such keys. You can store them in a secure cookie for example. Currently supported for user sessions: MySQL, postgres, sqlite3 and redis.
+ - Manage user accounts in a database: There are different ways to accomplish this, either by using a default scheme that is defined in this package our with your own scheme. This package takes care that user passwords are stored in a secure way using [bcrypt](https://godoc.org/golang.org/x/crypto/bcrypt) or with onre more line of code [scrypt](https://godoc.org/golang.org/x/crypto/scrypt). Supported storages: MySQL, postgres, sqlite3 and redis.
 
 I wanted to develop some small Go web applications without a big framework or something like that but with user authentication and couldn't find a suitable and small library. So I've written this one by myself.
 
 ## Current Version and Safety
 User authentication and session management is very important and needs to be absolutely safe. I've written this package by myself and until now no one revised the code. If someone would do that I would be very happy!
 
-The current release is version 0.2, I haven't really tested it in any project yet, but I'm going to do so. Since this project is just starting yet I'm not tagging it. I will develop in a new branch v0.3 from now on and the master branch stays at version 0.2 for now. But I think there may be some changes I'll have to make once I really use this project, so I will merge v0.3 in the master pretty soon.
+The current release is version v0.3, I haven't really tested it in any project yet, but I'm going to do so. Since this project is just starting yet I'm not tagging it. I will develop in a new branch v0.4 from now on and the master branch stays at version v0.3 for now. But I think there may be some changes I'll have to make once I really use this project, so I will merge v0.3 in the master pretty soon.
 
 Please not that this package comes without any warranty: If you use it do it on your own risk.
 
