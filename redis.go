@@ -352,3 +352,101 @@ func (handler *RedisUserHandler) UpdatePassword(userName string, plainPW []byte)
 	}).Err()
 	return updateErr
 }
+
+func (handler *RedisUserHandler) ListUsers() ([]*UserIdentification, error) {
+	// redis scan can return the same value multiple times, therefor we
+	// create a set of all found elements
+	resultSet := make(map[uint64]string)
+
+	var cursor uint64
+	for {
+		keys, newCursor, scanErr := handler.Client.Scan(cursor, handler.UserPrefix+"*", 0).Result()
+		cursor = newCursor
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		// add all ids for the given key
+		for _, key := range keys {
+			entry, getErr := handler.Client.HMGet(key, "id", "username").Result()
+			if getErr != nil {
+				return nil, getErr
+			}
+			if entry[0] == nil {
+				return nil, fmt.Errorf("No valid user information stored for key: %v", key)
+			}
+			idStr, idOk := entry[0].(string)
+			if !idOk {
+				return nil, errors.New("Weird type in redis, should not happen")
+			}
+			id, parseErr := strconv.ParseUint(idStr, 10, 64)
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			if entry[1] == nil {
+				return nil, fmt.Errorf("No valid user information stored for key: %v", key)
+			}
+			nameStr, nameOK := entry[1].(string)
+			if !nameOK {
+				return nil, errors.New("Weird type in redis, should not happen")
+			}
+			resultSet[id] = nameStr
+		}
+		if cursor == 0 {
+			break
+		}
+	}
+	res := make([]*UserIdentification, len(resultSet))
+	var nextPos uint64
+	for id, username := range resultSet {
+		res[nextPos] = &UserIdentification{ID: id, UserName: username}
+		nextPos++
+	}
+	return res, nil
+}
+
+func (handler *RedisUserHandler) GetUserName(id uint64) (string, error) {
+	var cursor uint64
+	for {
+		keys, newCursor, scanErr := handler.Client.Scan(cursor, handler.UserPrefix+"*", 0).Result()
+		cursor = newCursor
+		if scanErr != nil {
+			return "", scanErr
+		}
+		for _, key := range keys {
+			entry, getErr := handler.Client.HMGet(key, "id", "username").Result()
+			if getErr != nil {
+				return "", getErr
+			}
+			if entry[0] == nil {
+				return "", fmt.Errorf("No valid user information stored for key: %v", key)
+			}
+			idStr, idOk := entry[0].(string)
+			if !idOk {
+				return "", errors.New("Weird type in redis, should not happen")
+			}
+			getID, parseErr := strconv.ParseUint(idStr, 10, 64)
+			if parseErr != nil {
+				return "", parseErr
+			}
+			if getID == id {
+				if entry[1] == nil {
+					return "", fmt.Errorf("No valid user information stored for key: %v", key)
+				}
+				nameStr, nameOK := entry[1].(string)
+				if !nameOK {
+					return "", errors.New("Weird type in redis, should not happen")
+				}
+				return nameStr, nil
+			}
+		}
+		if cursor == 0 {
+			return "", ErrUserNotFound
+		}
+	}
+}
+
+func (handler *RedisUserHandler) DeleteUser(userName string) error {
+	userkey := fmt.Sprintf("%s%v", handler.UserPrefix, userName)
+	delErr := handler.Client.Del(userkey).Err()
+	return delErr
+}

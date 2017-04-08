@@ -238,6 +238,8 @@ var ErrNotAuthSession = errors.New("The session is not a valid auth session.")
 // GetSession tries to extract the auth session from the store,
 // returns the session and nil if everything is ok and nil and an error if
 // some occurred.
+//
+// New in version v0.3
 func (c SessionController) GetSession(r *http.Request, store sessions.Store) (*sessions.Session, error) {
 	session, err := store.Get(r, c.SessionName)
 	if err != nil {
@@ -250,6 +252,8 @@ func (c SessionController) GetSession(r *http.Request, store sessions.Store) (*s
 // It returns the key in the session and nil if everything is ok,
 // "" and ErrNotAuthSession if the session does not contain any auth information
 // and "" and some err != nil if something else is wrong.
+//
+// New in version v0.3
 func (c SessionController) GetKey(session *sessions.Session) (string, error) {
 	// check for the key value stored in session
 	keyVal, hasKey := session.Values[SessionKey]

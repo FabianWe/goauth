@@ -482,6 +482,21 @@ type SQLUserQueries struct {
 
 	// UpdatePasswordQuery is the query to update the password for a given username.
 	UpdatePasswordQuery string
+
+	// ListUsersQuery is the query to select all available users.
+	//
+	// New in version v0.4
+	ListUsersQuery string
+
+	// GetUsernameQ is the query used to get the user name given an id.
+	//
+	// New in version v0.4
+	GetUsernameQ string
+
+	// DeleteUserQ is used to delete the user give the user name.
+	//
+	// New in version v0.4
+	DeleteUserQ string
 }
 
 // MySQLUserQueries provides queries to use with MySQL.
@@ -507,8 +522,13 @@ func MySQLUserQueries(pwLength int) *SQLUserQueries {
 	`
 	validateQ := "SELECT id, password FROM users WHERE username = ?"
 	updateQ := "UPDATE users SET password=? WHERE username=?"
+	listUsersQ := "SELECT id, username FROM users"
+	getUsernameQ := "SELECT username FROM users WHERE id=?"
+	deleteQ := "DELETE FROM users WHERE username=?"
 	return &SQLUserQueries{PwLength: pwLength, InitQuery: initQ,
-		InsertQuery: insertQ, ValidateQuery: validateQ, UpdatePasswordQuery: updateQ}
+		InsertQuery: insertQ, ValidateQuery: validateQ, UpdatePasswordQuery: updateQ,
+		ListUsersQuery: listUsersQ, GetUsernameQ: getUsernameQ,
+		DeleteUserQ: deleteQ}
 }
 
 // PostgresUserQueries provides queries to use with postgres.
@@ -533,8 +553,13 @@ func PostgresUserQueries(pwLength int) *SQLUserQueries {
 	`
 	validateQ := "SELECT id, password FROM users WHERE username = $1"
 	updateQ := "UPDATE users SET password=$1 WHERE username = $2"
+	listUsersQ := "SELECT id, username FROM users"
+	getUsernameQ := "SELECT username FROM users WHERE id = $1"
+	deleteQ := "DELETE FROM users WHERE username = $1"
 	return &SQLUserQueries{PwLength: pwLength, InitQuery: initQ,
-		InsertQuery: insertQ, ValidateQuery: validateQ, UpdatePasswordQuery: updateQ}
+		InsertQuery: insertQ, ValidateQuery: validateQ, UpdatePasswordQuery: updateQ,
+		ListUsersQuery: listUsersQ, GetUsernameQ: getUsernameQ,
+		DeleteUserQ: deleteQ}
 }
 
 // SQLite3UserQueries provides queries to use with sqlite3.
@@ -714,5 +739,51 @@ func (handler *SQLUserHandler) UpdatePassword(username string, plainPW []byte) e
 
 	// now try to update the password
 	_, err := handler.DB.Exec(handler.UpdatePasswordQuery, encrypted, username)
+	return err
+}
+
+func (handler *SQLUserHandler) ListUsers() ([]*UserIdentification, error) {
+	if handler.blockDB {
+		handler.mutex.RLock()
+		defer handler.mutex.RUnlock()
+	}
+
+	// try to get the results
+	rows, err := handler.DB.Query(handler.ListUsersQuery)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	res := make([]*UserIdentification, 0)
+	for rows.Next() {
+		var id uint64
+		var username string
+		scanErr := rows.Scan(&id, &username)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		res = append(res, &UserIdentification{ID: id, UserName: username})
+	}
+	err = rows.Err()
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (handler *SQLUserHandler) GetUserName(id uint64) (string, error) {
+	row := handler.DB.QueryRow(handler.GetUsernameQ, id)
+	var username string
+	if err := row.Scan(&username); err != nil {
+		if err == sql.ErrNoRows {
+			return "", ErrUserNotFound
+		}
+		return "", err
+	}
+	return username, nil
+}
+
+func (handler *SQLUserHandler) DeleteUser(username string) error {
+	_, err := handler.DB.Exec(handler.DeleteUserQ, username)
 	return err
 }
