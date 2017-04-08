@@ -772,6 +772,10 @@ func (handler *SQLUserHandler) ListUsers() ([]*UserIdentification, error) {
 }
 
 func (handler *SQLUserHandler) GetUserName(id uint64) (string, error) {
+	if handler.blockDB {
+		handler.mutex.RLock()
+		defer handler.mutex.RUnlock()
+	}
 	row := handler.DB.QueryRow(handler.GetUsernameQ, id)
 	var username string
 	if err := row.Scan(&username); err != nil {
@@ -784,6 +788,10 @@ func (handler *SQLUserHandler) GetUserName(id uint64) (string, error) {
 }
 
 func (handler *SQLUserHandler) DeleteUser(username string) error {
+	if handler.blockDB {
+		handler.mutex.Lock()
+		defer handler.mutex.Unlock()
+	}
 	_, err := handler.DB.Exec(handler.DeleteUserQ, username)
 	return err
 }
