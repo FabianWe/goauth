@@ -235,6 +235,36 @@ var ErrInvalidKey = errors.New("The key is not valid any more.")
 // the user does not have a session yet and needs to login.
 var ErrNotAuthSession = errors.New("The session is not a valid auth session.")
 
+// GetSession tries to extract the auth session from the store,
+// returns the session and nil if everything is ok and nil and an error if
+// some occurred.
+func (c SessionController) GetSession(r *http.Request, store sessions.Store) (*sessions.Session, error) {
+	session, err := store.Get(r, c.SessionName)
+	if err != nil {
+		return nil, err
+	}
+	return session, nil
+}
+
+// GetKey retrieves the key from the session != nil.
+// It returns the key in the session and nil if everything is ok,
+// "" and ErrNotAuthSession if the session does not contain any auth information
+// and "" and some err != nil if something else is wrong.
+func (c SessionController) GetKey(session *sessions.Session) (string, error) {
+	// check for the key value stored in session
+	keyVal, hasKey := session.Values[SessionKey]
+
+	if !hasKey {
+		return "", ErrNotAuthSession
+	}
+
+	key, ok := keyVal.(string)
+	if !ok {
+		return "", errors.New("Internal lookup error. \"key\" is present in the session but not of type string.")
+	}
+	return key, nil
+}
+
 // ValidateSession validates the key that is stored in the session.
 // This function will try to get a session that is called SessionName (so
 // usually the session "user-auth"). If an error occurred while trying to get
@@ -276,21 +306,15 @@ var ErrNotAuthSession = errors.New("The session is not a valid auth session.")
 func (c *SessionController) ValidateSession(r *http.Request, store sessions.Store) (*SessionKeyData, *sessions.Session, error) {
 	now := CurrentTime()
 	// first get the session
-	session, err := store.Get(r, c.SessionName)
+	session, err := c.GetSession(r, store)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// check for the key value stored in session
-	keyVal, hasKey := session.Values[SessionKey]
-
-	if !hasKey {
-		return nil, session, ErrNotAuthSession
-	}
-
-	key, ok := keyVal.(string)
-	if !ok {
-		return nil, session, errors.New("Internal lookup error. \"key\" is present in the session but not of type string.")
+	key, keyErr := c.GetKey(session)
+	if keyErr != nil {
+		return nil, session, keyErr
 	}
 
 	// try to get the information out of the underlying storage
