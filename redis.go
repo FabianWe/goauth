@@ -353,10 +353,8 @@ func (handler *RedisUserHandler) UpdatePassword(userName string, plainPW []byte)
 	return updateErr
 }
 
-func (handler *RedisUserHandler) ListUsers() ([]*UserIdentification, error) {
-	// redis scan can return the same value multiple times, therefor we
-	// create a set of all found elements
-	resultSet := make(map[uint64]string)
+func (handler *RedisUserHandler) ListUsers() (map[uint64]string, error) {
+	res := make(map[uint64]string)
 
 	var cursor uint64
 	for {
@@ -389,18 +387,13 @@ func (handler *RedisUserHandler) ListUsers() ([]*UserIdentification, error) {
 			if !nameOK {
 				return nil, errors.New("Weird type in redis, should not happen")
 			}
-			resultSet[id] = nameStr
+			res[id] = nameStr
 		}
 		if cursor == 0 {
 			break
 		}
 	}
-	res := make([]*UserIdentification, len(resultSet))
-	var nextPos uint64
-	for id, username := range resultSet {
-		res[nextPos] = &UserIdentification{ID: id, UserName: username}
-		nextPos++
-	}
+
 	return res, nil
 }
 

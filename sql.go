@@ -742,7 +742,7 @@ func (handler *SQLUserHandler) UpdatePassword(username string, plainPW []byte) e
 	return err
 }
 
-func (handler *SQLUserHandler) ListUsers() ([]*UserIdentification, error) {
+func (handler *SQLUserHandler) ListUsers() (map[uint64]string, error) {
 	if handler.blockDB {
 		handler.mutex.RLock()
 		defer handler.mutex.RUnlock()
@@ -754,7 +754,7 @@ func (handler *SQLUserHandler) ListUsers() ([]*UserIdentification, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	res := make([]*UserIdentification, 0)
+	res := make(map[uint64]string, 0)
 	for rows.Next() {
 		var id uint64
 		var username string
@@ -762,7 +762,7 @@ func (handler *SQLUserHandler) ListUsers() ([]*UserIdentification, error) {
 		if scanErr != nil {
 			return nil, scanErr
 		}
-		res = append(res, &UserIdentification{ID: id, UserName: username})
+		res[id] = username
 	}
 	err = rows.Err()
 	if err != nil {

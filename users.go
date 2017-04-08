@@ -177,15 +177,6 @@ func (handler *ScryptHandler) PasswordHashLength() int {
 // was not found.
 var ErrUserNotFound = errors.New("Username not found.")
 
-// UserIdentification is used to group username and user id together,
-// used for lookups.
-//
-// New in version v0.4
-type UserIdentification struct {
-	ID       uint64
-	UserName string
-}
-
 // UserHandler is an interface to deal with the management of
 // users.
 // It should use a PasswordHandler for generating passwords to store.
@@ -225,7 +216,7 @@ type UserHandler interface {
 	// ListUsers returns all users currently present in the storage (by id).
 	//
 	// New in version v0.4
-	ListUsers() ([]*UserIdentification, error)
+	ListUsers() (map[uint64]string, error)
 
 	// GetUserName returns the username for a given id.
 	// Returns "" and ErrUserNotFound if the id is not valid.
