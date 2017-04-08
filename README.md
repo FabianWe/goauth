@@ -16,7 +16,7 @@ I wanted to develop some small Go web applications without a big framework or so
 ## Current Version and Safety
 User authentication and session management is very important and needs to be absolutely safe. I've written this package by myself and until now no one revised the code. If someone would do that I would be very happy!
 
-The current release is version v0.3, I haven't really tested it in any project yet, but I'm going to do so. Since this project is just starting yet I'm not tagging it. I will develop in a new branch v0.4 from now on and the master branch stays at version v0.3 for now. But I think there may be some changes I'll have to make once I really use this project, so I will merge v0.3 in the master pretty soon.
+The current release is version v0.4, I haven't really tested it in any project yet, but I'm going to do so. I will develop in a new branch v0.5 from now on and the master branch stays at version v0.4 for now. But I think there may be some changes I'll have to make once I really use this project, so I will merge v0.5 in the master pretty soon.
 
 Please not that this package comes without any warranty: If you use it do it on your own risk.
 
