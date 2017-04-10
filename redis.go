@@ -240,11 +240,6 @@ func (handler *RedisSessionHandler) DeleteInvalidKeys() (int64, error) {
 
 // Users stuff
 
-// TODO why get id as string? should be uint64 already?
-// test this!
-// also add a field for each user with the id and map to the
-// user entry
-
 // RedisUserHandler is a UserHandler that uses redis.
 type RedisUserHandler struct {
 	// Client is the client used to connect to redis.
