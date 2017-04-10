@@ -27,6 +27,7 @@ import (
 	"errors"
 	"math"
 	"strconv"
+	"time"
 
 	scrypt "github.com/elithrar/simple-scrypt"
 
@@ -161,7 +162,7 @@ func (handler *ScryptHandler) CheckPassword(hashedPW, password []byte) (bool, er
 	return false, err
 }
 
-// PasswordHashLength returns the default length for scrypt.
+// PasswordHashLength returns the password length for scrypt.
 func (handler *ScryptHandler) PasswordHashLength() int {
 	// this is a bit ugly but well...
 	nLength := len(strconv.Itoa(handler.Params.N))
@@ -175,7 +176,18 @@ func (handler *ScryptHandler) PasswordHashLength() int {
 // ErrUserNotFound is an error that is used in the Validate
 // function to signal that the user with the given username
 // was not found.
-var ErrUserNotFound = errors.New("Username not found.")
+var ErrUserNotFound = errors.New("User not found.")
+
+// DefaultUserInformation is used to wrap the the information for
+// a user in the default scheme.
+//
+// New in version v0.5
+type BaseUserInformation struct {
+	ID                                   uint64
+	UserName, FirstName, LastName, Email string
+	LastLogin                            time.Time
+	IsActive                             bool
+}
 
 // UserHandler is an interface to deal with the management of
 // users.
@@ -194,7 +206,7 @@ type UserHandler interface {
 	// If the insert took place it always returns an error == nil.
 	// However it can return nil as an error and NoUserID, in this case the
 	// database doesn't support an immediate lookup for the newly inserted id
-	// (sqlite3 and MySQL seem to support this though, postgre not).
+	// (sqlite3 and MySQL seem to support this though, postgres not).
 	// Note that an error is also raised if the username is already in use
 	// (must be unique).
 	Insert(userName, firstName, lastName, email string, plainPW []byte) (uint64, error)
@@ -220,9 +232,6 @@ type UserHandler interface {
 
 	// GetUserName returns the username for a given id.
 	// Returns "" and ErrUserNotFound if the id is not valid.
-	// Note that this operation is rather slow in redis.
-	// If you would have to call it multiple times don't call this methid, it'll
-	// be slow, write something on your own.
 	//
 	// New in version v0.4
 	GetUserName(id uint64) (string, error)
@@ -232,4 +241,13 @@ type UserHandler interface {
 	//
 	// New in version v0.4
 	DeleteUser(username string) error
+
+	// GetUserBaseInfo returns the information for a given user in the default
+	// scheme.
+	// If you have a different scheme to manage your users this will probably
+	// not work.
+	// Returns ErrUserNotFound if the user doesn't exist.
+	//
+	// New in version v0.5
+	GetUserBaseInfo(userName string) (*BaseUserInformation, error)
 }

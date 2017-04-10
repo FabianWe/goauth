@@ -30,6 +30,25 @@ import (
 	"time"
 )
 
+// DefaultTimeFromScanType is the default function to return database entries
+// to a time.Time.
+func DefaultTimeFromScanType(val interface{}) (time.Time, error) {
+	// first check if we already got a time.Time because parseTime in
+	// the MySQL driver is true
+	if alreadyTime, ok := val.(time.Time); ok {
+		return alreadyTime, nil
+	}
+	if bytes, ok := val.([]byte); ok {
+		s := string(bytes)
+		// let's hope this is correct... however who came up with THIS parse
+		// function definition in Go?!
+		return time.Parse("2006-01-02 15:04:05", s)
+	} else {
+		// we have to return some time... why not now.
+		return time.Now().UTC(), errors.New("Invalid date in database, probably a bug if you end up here.")
+	}
+}
+
 // SQLSessionTemplate to generate queries for different SQL flavours such as MySQL
 // or postgres. It must use certain placeholders for example for the table name or
 // key length. See the MySQL implementation, it would be really cumbersome to
@@ -294,20 +313,7 @@ func (t MySQLSessionTemplate) DeleteKeyQ() string {
 // (the driver has an option to enable this).
 // If not it pasres the datetime in the format "2006-01-02 15:04:05".
 func (t MySQLSessionTemplate) TimeFromScanType(val interface{}) (time.Time, error) {
-	// first check if we already got a time.Time because parseTime in
-	// the MySQL driver is true
-	if alreadyTime, ok := val.(time.Time); ok {
-		return alreadyTime, nil
-	}
-	if bytes, ok := val.([]byte); ok {
-		s := string(bytes)
-		// let's hope this is correct... however who came up with THIS parse
-		// function definition in Go?!
-		return time.Parse("2006-01-02 15:04:05", s)
-	} else {
-		// we have to return some time... why not now.
-		return time.Now().UTC(), errors.New("Invalid date in database, probably a bug if you end up here.")
-	}
+	return DefaultTimeFromScanType(val)
 }
 
 // SQLite3SessionTemplate is an implementation of SQLSessionTemplate
@@ -385,20 +391,7 @@ func (t PostgresSessionTemplate) DeleteKeyQ() string {
 }
 
 func (t PostgresSessionTemplate) TimeFromScanType(val interface{}) (time.Time, error) {
-	// first check if we already got a time.Time because parseTime in
-	// the MySQL driver is true
-	if alreadyTime, ok := val.(time.Time); ok {
-		return alreadyTime, nil
-	}
-	if bytes, ok := val.([]byte); ok {
-		s := string(bytes)
-		// let's hope this is correct... however who came up with THIS parse
-		// function definition in Go?!
-		return time.Parse("2006-01-02 15:04:05", s)
-	} else {
-		// we have to return some time... why not now.
-		return time.Now().UTC(), errors.New("Invalid date in database, probably a bug if you end up here.")
-	}
+	return DefaultTimeFromScanType(val)
 }
 
 // NewPostgresSessionHandler returns a new SQLSessionHandler using postgres.
@@ -497,6 +490,20 @@ type SQLUserQueries struct {
 	//
 	// New in version v0.4
 	DeleteUserQ string
+
+	// GetUserInfoQuery is the query to get the information for a given username
+	// from the default scheme.
+	//
+	// New in version v0.5
+	GetUserInfoQuery string
+
+	// TimeFromScanType is used to transform database time entries to
+	// gos time. See SQLSessionHandler for details.
+	// Defaults to a function that first checks if the value is already a time.Time
+	// and otherwise parses the value as a string in NewSQLUserQueries.
+	//
+	// New in version v0.5
+	TimeFromScanType func(val interface{}) (time.Time, error)
 }
 
 // MySQLUserQueries provides queries to use with MySQL.
@@ -525,10 +532,11 @@ func MySQLUserQueries(pwLength int) *SQLUserQueries {
 	listUsersQ := "SELECT id, username FROM users"
 	getUsernameQ := "SELECT username FROM users WHERE id=?"
 	deleteQ := "DELETE FROM users WHERE username=?"
+	getUserInfoQ := "SELECT id, first_name, last_name, email, is_active, last_login FROM users WHERE username=?"
 	return &SQLUserQueries{PwLength: pwLength, InitQuery: initQ,
 		InsertQuery: insertQ, ValidateQuery: validateQ, UpdatePasswordQuery: updateQ,
 		ListUsersQuery: listUsersQ, GetUsernameQ: getUsernameQ,
-		DeleteUserQ: deleteQ}
+		DeleteUserQ: deleteQ, GetUserInfoQuery: getUserInfoQ, TimeFromScanType: DefaultTimeFromScanType}
 }
 
 // PostgresUserQueries provides queries to use with postgres.
@@ -556,10 +564,11 @@ func PostgresUserQueries(pwLength int) *SQLUserQueries {
 	listUsersQ := "SELECT id, username FROM users"
 	getUsernameQ := "SELECT username FROM users WHERE id = $1"
 	deleteQ := "DELETE FROM users WHERE username = $1"
+	getUserInfoQ := "SELECT id, first_name, last_name, email, is_active, last_login FROM users WHERE username = $1"
 	return &SQLUserQueries{PwLength: pwLength, InitQuery: initQ,
 		InsertQuery: insertQ, ValidateQuery: validateQ, UpdatePasswordQuery: updateQ,
 		ListUsersQuery: listUsersQ, GetUsernameQ: getUsernameQ,
-		DeleteUserQ: deleteQ}
+		DeleteUserQ: deleteQ, GetUserInfoQuery: getUserInfoQ, TimeFromScanType: DefaultTimeFromScanType}
 }
 
 // SQLite3UserQueries provides queries to use with sqlite3.
@@ -794,4 +803,26 @@ func (handler *SQLUserHandler) DeleteUser(username string) error {
 	}
 	_, err := handler.DB.Exec(handler.DeleteUserQ, username)
 	return err
+}
+
+// getUserInfoQ := "SELECT id, first_name, last_name, email, is_active, last_login FROM users WHERE id=?"
+func (handler *SQLUserHandler) GetUserBaseInfo(userName string) (*BaseUserInformation, error) {
+	row := handler.DB.QueryRow(handler.GetUserInfoQuery, userName)
+	var id uint64
+	var firstName, lastName, email string
+	var isActive bool
+	var lastLoginVal interface{}
+	if err := row.Scan(&id, &firstName, &lastName, &email, &isActive, &lastLoginVal); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrUserNotFound
+		}
+		return nil, err
+	}
+	lastLogin, loginParseErr := handler.TimeFromScanType(lastLoginVal)
+	if loginParseErr != nil {
+		return nil, loginParseErr
+	}
+	res := &BaseUserInformation{ID: id, UserName: userName, FirstName: firstName,
+		LastName: lastName, Email: email, LastLogin: lastLogin, IsActive: isActive}
+	return res, nil
 }

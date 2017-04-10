@@ -33,6 +33,12 @@ import (
 	"github.com/go-redis/redis"
 )
 
+const (
+	// RedisDateFormat is the format string that is used to format / parse
+	// date strings in redis.
+	RedisDateFormat = "2006-01-02 15:04:05"
+)
+
 // Sessions stuff
 
 // RedisSessionHandler is a session Handler using redis.
@@ -144,8 +150,8 @@ func (handler *RedisSessionHandler) CreateEntry(user UserKeyType, key string, va
 	err := handler.Client.HMSet(redisKey,
 		map[string]interface{}{
 			"User":         fmt.Sprintf("%v", user),
-			"CreationTime": data.CreationTime.Format("2006-01-02 15:04:05"),
-			"ValidUntil":   data.ValidUntil.Format("2006-01-02 15:04:05"),
+			"CreationTime": data.CreationTime.Format(RedisDateFormat),
+			"ValidUntil":   data.ValidUntil.Format(RedisDateFormat),
 		}).Err()
 	if err != nil {
 		return nil, err
@@ -201,14 +207,14 @@ func (handler *RedisSessionHandler) GetData(key string) (*SessionKeyData, error)
 				}
 
 			case 1:
-				if creation, creationErr := time.Parse("2006-01-02 15:04:05", s); creationErr != nil {
+				if creation, creationErr := time.Parse(RedisDateFormat, s); creationErr != nil {
 					return nil, creationErr
 				} else {
 					result.CreationTime = creation
 				}
 
 			case 2:
-				if valid, validErr := time.Parse("2006-01-02 15:04:05", s); validErr != nil {
+				if valid, validErr := time.Parse(RedisDateFormat, s); validErr != nil {
 					return nil, validErr
 				} else {
 					result.ValidUntil = valid
@@ -234,6 +240,11 @@ func (handler *RedisSessionHandler) DeleteInvalidKeys() (int64, error) {
 
 // Users stuff
 
+// TODO why get id as string? should be uint64 already?
+// test this!
+// also add a field for each user with the id and map to the
+// user entry
+
 // RedisUserHandler is a UserHandler that uses redis.
 type RedisUserHandler struct {
 	// Client is the client used to connect to redis.
@@ -247,6 +258,9 @@ type RedisUserHandler struct {
 	// NextIDKey is the ID that was last used to create a user.
 	// This is the key that stores the value in redis.
 	UserPrefix, NextIDKey string
+
+	// The prefix used to store the mapping id -> user name
+	UserIDPrefix string
 }
 
 // NewRedisUserHandler returns a new RedisUserHandler.
@@ -255,7 +269,7 @@ func NewRedisUserHandler(client *redis.Client, pwHandler PasswordHandler) *Redis
 		pwHandler = DefaultPWHandler
 	}
 	return &RedisUserHandler{Client: client, PwHandler: pwHandler, UserPrefix: "user:",
-		NextIDKey: "nxtUserid"}
+		NextIDKey: "nxtUserid", UserIDPrefix: "userID:"}
 }
 
 func (handler *RedisUserHandler) Init() error {
@@ -263,6 +277,7 @@ func (handler *RedisUserHandler) Init() error {
 }
 
 func (handler *RedisUserHandler) Insert(userName, firstName, lastName, email string, plainPW []byte) (uint64, error) {
+	now := CurrentTime()
 	// encrypt password
 	encrypted, encErr := handler.PwHandler.GenerateHash(plainPW)
 	if encErr != nil {
@@ -282,14 +297,21 @@ func (handler *RedisUserHandler) Insert(userName, firstName, lastName, email str
 		return NoUserID, idErr
 	}
 	// insert
-	insertErr := handler.Client.HMSet(userkey, map[string]interface{}{
-		"id":        id,
-		"username":  userName,
-		"firstName": firstName,
-		"lastName":  lastName,
-		"email":     email,
-		"password":  string(encrypted),
-	}).Err()
+	// we start a transaction for this
+	pipe := handler.Client.TxPipeline()
+	pipe.HMSet(userkey, map[string]interface{}{
+		"id":         id,
+		"username":   userName,
+		"firstName":  firstName,
+		"lastName":   lastName,
+		"email":      email,
+		"is_active":  true,
+		"last_login": now.Format(RedisDateFormat),
+		"password":   string(encrypted),
+	})
+	// insert mapping id -> username
+	pipe.Set(fmt.Sprintf("%s%d", handler.UserIDPrefix, id), userName, 0)
+	_, insertErr := pipe.Exec()
 	if insertErr != nil {
 		return NoUserID, insertErr
 	}
@@ -357,8 +379,9 @@ func (handler *RedisUserHandler) ListUsers() (map[uint64]string, error) {
 	res := make(map[uint64]string)
 
 	var cursor uint64
+	scanMatch := handler.UserPrefix + "*"
 	for {
-		keys, newCursor, scanErr := handler.Client.Scan(cursor, handler.UserPrefix+"*", 0).Result()
+		keys, newCursor, scanErr := handler.Client.Scan(cursor, scanMatch, 0).Result()
 		cursor = newCursor
 		if scanErr != nil {
 			return nil, scanErr
@@ -398,48 +421,71 @@ func (handler *RedisUserHandler) ListUsers() (map[uint64]string, error) {
 }
 
 func (handler *RedisUserHandler) GetUserName(id uint64) (string, error) {
-	var cursor uint64
-	for {
-		keys, newCursor, scanErr := handler.Client.Scan(cursor, handler.UserPrefix+"*", 0).Result()
-		cursor = newCursor
-		if scanErr != nil {
-			return "", scanErr
-		}
-		for _, key := range keys {
-			entry, getErr := handler.Client.HMGet(key, "id", "username").Result()
-			if getErr != nil {
-				return "", getErr
-			}
-			if entry[0] == nil {
-				return "", fmt.Errorf("No valid user information stored for key: %v", key)
-			}
-			idStr, idOk := entry[0].(string)
-			if !idOk {
-				return "", errors.New("Weird type in redis, should not happen")
-			}
-			getID, parseErr := strconv.ParseUint(idStr, 10, 64)
-			if parseErr != nil {
-				return "", parseErr
-			}
-			if getID == id {
-				if entry[1] == nil {
-					return "", fmt.Errorf("No valid user information stored for key: %v", key)
-				}
-				nameStr, nameOK := entry[1].(string)
-				if !nameOK {
-					return "", errors.New("Weird type in redis, should not happen")
-				}
-				return nameStr, nil
-			}
-		}
-		if cursor == 0 {
+	name, err := handler.Client.Get(fmt.Sprintf("%s%d", handler.UserIDPrefix, id)).Result()
+	if err != nil {
+		if err == redis.Nil {
 			return "", ErrUserNotFound
 		}
+		return "", err
 	}
+	return name, err
 }
 
 func (handler *RedisUserHandler) DeleteUser(userName string) error {
+	// get the id
 	userkey := fmt.Sprintf("%s%v", handler.UserPrefix, userName)
-	delErr := handler.Client.Del(userkey).Err()
+	entry, getErr := handler.Client.HMGet(userkey, "id").Result()
+	if getErr != nil {
+		return getErr
+	}
+	if entry[0] == nil {
+		// not found
+		return nil
+	}
+	idStr, idOk := entry[0].(string)
+	if !idOk {
+		return errors.New("Weird type in redis, should not happen")
+	}
+	// start a pipeline and delete both: id entry and user entry
+	pipe := handler.Client.TxPipeline()
+	pipe.Del(userkey)
+	pipe.Del(fmt.Sprintf("%s%s", handler.UserIDPrefix, idStr))
+	_, delErr := pipe.Exec()
 	return delErr
+}
+
+func (handler *RedisUserHandler) GetUserBaseInfo(userName string) (*BaseUserInformation, error) {
+	userkey := fmt.Sprintf("%s%v", handler.UserPrefix, userName)
+	entry, getErr := handler.Client.HMGet(userkey, "id", "firstName", "lastName", "email", "is_active", "last_login").Result()
+	if getErr != nil {
+		return nil, getErr
+	}
+	// check that every entry is not nil and a string
+	strings := make([]string, len(entry))
+	for i, val := range entry {
+		if val == nil {
+			return nil, ErrUserNotFound
+		}
+		if asStr, strOK := val.(string); strOK {
+			strings[i] = asStr
+		} else {
+			return nil, errors.New("Weird type in redis, should not happen")
+		}
+	}
+	// parse entries
+	id, idParseErr := strconv.ParseUint(strings[0], 10, 64)
+	if idParseErr != nil {
+		return nil, idParseErr
+	}
+	isActive, activeParseErr := strconv.ParseBool(strings[4])
+	if activeParseErr != nil {
+		return nil, activeParseErr
+	}
+	lastLogin, loginParseErr := time.Parse(RedisDateFormat, strings[5])
+	if loginParseErr != nil {
+		return nil, loginParseErr
+	}
+	res := &BaseUserInformation{ID: id, UserName: userName, FirstName: strings[1],
+		LastName: strings[2], Email: strings[3], LastLogin: lastLogin, IsActive: isActive}
+	return res, nil
 }
