@@ -497,6 +497,11 @@ type SQLUserQueries struct {
 	// New in version v0.5
 	GetUserInfoQuery string
 
+	// GetIDQuery is the query used to get the id given a username.
+	//
+	// New in version v0.6
+	GetIDQuery string
+
 	// TimeFromScanType is used to transform database time entries to
 	// gos time. See SQLSessionHandler for details.
 	// Defaults to a function that first checks if the value is already a time.Time
@@ -533,10 +538,12 @@ func MySQLUserQueries(pwLength int) *SQLUserQueries {
 	getUsernameQ := "SELECT username FROM users WHERE id=?"
 	deleteQ := "DELETE FROM users WHERE username=?"
 	getUserInfoQ := "SELECT id, first_name, last_name, email, is_active, last_login FROM users WHERE username=?"
+	getIDQuery := "SELECT id FROM users WHERE username=?"
 	return &SQLUserQueries{PwLength: pwLength, InitQuery: initQ,
 		InsertQuery: insertQ, ValidateQuery: validateQ, UpdatePasswordQuery: updateQ,
 		ListUsersQuery: listUsersQ, GetUsernameQ: getUsernameQ,
-		DeleteUserQ: deleteQ, GetUserInfoQuery: getUserInfoQ, TimeFromScanType: DefaultTimeFromScanType}
+		DeleteUserQ: deleteQ, GetUserInfoQuery: getUserInfoQ,
+		GetIDQuery: getIDQuery, TimeFromScanType: DefaultTimeFromScanType}
 }
 
 // PostgresUserQueries provides queries to use with postgres.
@@ -565,10 +572,12 @@ func PostgresUserQueries(pwLength int) *SQLUserQueries {
 	getUsernameQ := "SELECT username FROM users WHERE id = $1"
 	deleteQ := "DELETE FROM users WHERE username = $1"
 	getUserInfoQ := "SELECT id, first_name, last_name, email, is_active, last_login FROM users WHERE username = $1"
+	getIDQuery := "SELECT id FROM users WHERE username = $1"
 	return &SQLUserQueries{PwLength: pwLength, InitQuery: initQ,
 		InsertQuery: insertQ, ValidateQuery: validateQ, UpdatePasswordQuery: updateQ,
 		ListUsersQuery: listUsersQ, GetUsernameQ: getUsernameQ,
-		DeleteUserQ: deleteQ, GetUserInfoQuery: getUserInfoQ, TimeFromScanType: DefaultTimeFromScanType}
+		DeleteUserQ: deleteQ, GetUserInfoQuery: getUserInfoQ,
+		GetIDQuery: getIDQuery, TimeFromScanType: DefaultTimeFromScanType}
 }
 
 // SQLite3UserQueries provides queries to use with sqlite3.
@@ -803,6 +812,22 @@ func (handler *SQLUserHandler) DeleteUser(username string) error {
 	}
 	_, err := handler.DB.Exec(handler.DeleteUserQ, username)
 	return err
+}
+
+func (handler *SQLUserHandler) GetUserID(userName string) (uint64, error) {
+	if handler.blockDB {
+		handler.mutex.RLock()
+		defer handler.mutex.RUnlock()
+	}
+	row := handler.DB.QueryRow(handler.GetIDQuery, userName)
+	var id uint64
+	if err := row.Scan(&id); err != nil {
+		if err == sql.ErrNoRows {
+			return NoUserID, ErrUserNotFound
+		}
+		return NoUserID, err
+	}
+	return id, nil
 }
 
 // getUserInfoQ := "SELECT id, first_name, last_name, email, is_active, last_login FROM users WHERE id=?"

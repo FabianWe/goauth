@@ -484,3 +484,24 @@ func (handler *RedisUserHandler) GetUserBaseInfo(userName string) (*BaseUserInfo
 		LastName: strings[2], Email: strings[3], LastLogin: lastLogin, IsActive: isActive}
 	return res, nil
 }
+
+func (handler *RedisUserHandler) GetUserID(userName string) (uint64, error) {
+	userkey := fmt.Sprintf("%s%v", handler.UserPrefix, userName)
+	entry, getErr := handler.Client.HMGet(userkey, "id").Result()
+	if getErr != nil {
+		return NoUserID, getErr
+	}
+	if entry[0] == nil {
+		return NoUserID, ErrUserNotFound
+	}
+	idStr, idOk := entry[0].(string)
+	if !idOk {
+		return NoUserID, errors.New("Weird type in redis, should not happen")
+	}
+	// parse id
+	id, idParseErr := strconv.ParseUint(idStr, 10, 64)
+	if idParseErr != nil {
+		return NoUserID, idParseErr
+	}
+	return id, nil
+}

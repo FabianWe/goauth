@@ -236,6 +236,12 @@ type UserHandler interface {
 	// New in version v0.4
 	GetUserName(id uint64) (string, error)
 
+	// GetUserID returns the id for a given username.
+	// If the user does not exist return ErrUserNotFound.
+	//
+	// New version v0.6
+	GetUserID(userName string) (uint64, error)
+
 	// DeleteUser deletes the user with the given username.
 	// If the user doesn't exist it will do nothing.
 	//
